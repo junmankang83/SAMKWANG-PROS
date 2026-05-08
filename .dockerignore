@@ -1,0 +1,45 @@
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+
+# Node / pnpm
+node_modules
+**/node_modules
+.pnpm-store
+**/.pnpm-store
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist
+**/dist
+build
+**/build
+.next
+**/.next
+out
+**/out
+
+# Env files (templates는 포함)
+.env
+.env.*
+!.env.example
+
+# Logs / OS
+*.log
+.DS_Store
+*.swp
+
+# Docs / 기타
+docs
+README.md
+*.md
+docker-compose*.yml
+docker-compose*.yaml
+
+# Cursor / 작업 메타
+.cursor

@@ -1,0 +1,81 @@
+# SAMKWANG-PROS - 생산관리시스템
+# 스택: NestJS 11 + Next.js 15 + PostgreSQL 16
+# 환경 변수: .env.example 을 .env 로 복사 후 값 채우기
+
+name: samkwang-pros
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-samkwang}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-samkwang_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-samkwang_pros}
+      TZ: Asia/Seoul
+      PGTZ: Asia/Seoul
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pros_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - pros_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-samkwang}:${POSTGRES_PASSWORD:-samkwang_dev}@db:5432/${POSTGRES_DB:-samkwang_pros}?schema=public
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      APP_VERSION: ${APP_VERSION:-0.1.0}
+      TZ: Asia/Seoul
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pros_net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      BACKEND_INTERNAL_URL: http://backend:4000
+      TZ: Asia/Seoul
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    networks:
+      - pros_net
+
+networks:
+  pros_net:
+    driver: bridge
+
+volumes:
+  pros_data:
+    driver: local

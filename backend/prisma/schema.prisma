@@ -1,0 +1,11 @@
+// SAMKWANG-PROS Prisma 스키마
+// 도메인 모델은 추후 확정 후 추가 (예: User, WorkOrder, Equipment, Material, ProductionRecord 등)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

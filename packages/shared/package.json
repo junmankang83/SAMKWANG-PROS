@@ -1,0 +1,20 @@
+{
+  "name": "@samkwang/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "백엔드/프론트엔드 공유 타입 및 유틸",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

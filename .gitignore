@@ -1,0 +1,46 @@
+# 환경 변수 (비밀값)
+.env
+.env.local
+.env.*.local
+
+# Node / pnpm
+node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Prisma 생성물 (schema 외)
+backend/prisma/migrations/dev.db*
+
+# Python (이전 골격 호환)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# 로그·임시
+*.log
+tmp/
+temp/
+
+# Docker
+*.local.yml
