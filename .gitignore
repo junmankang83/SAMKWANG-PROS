@@ -17,6 +17,11 @@ build/
 out/
 *.tsbuildinfo
 
+# shared: tsc 산출물은 packages/shared/dist 만 (src/ 에 .js·.d.ts 가 있으면 Docker 백엔드 빌드 실패)
+packages/shared/src/**/*.js
+packages/shared/src/**/*.js.map
+packages/shared/src/**/*.d.ts
+
 # Prisma 생성물 (schema 외)
 backend/prisma/migrations/dev.db*
 

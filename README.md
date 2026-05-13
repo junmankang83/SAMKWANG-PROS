@@ -105,7 +105,7 @@ DATABASE_URL=postgresql://samkwang:samkwang_dev@localhost:5432/samkwang_pros?sch
 `.env.example` 을 `.env` 로 복사한 뒤 운영 값으로 교체합니다. 주요 변수:
 
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-- `BACKEND_PORT`, `FRONTEND_PORT`, `POSTGRES_PORT`
+- `BACKEND_PORT`, `APP_WEB_PORT` (nginx 게이트웨이), `POSTGRES_PORT`, `PUBLIC_APP_BASE`
 - `CORS_ORIGIN` (다중 origin 은 콤마 구분)
 
 `DATABASE_URL` 은 `docker-compose.yml` 에서 위 값을 사용해 자동 조립됩니다.

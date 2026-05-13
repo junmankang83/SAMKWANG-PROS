@@ -1,0 +1,8 @@
+# syntax=docker/dockerfile:1.7
+# 개발 전용: 호스트 소스 마운트 + next dev (Fast Refresh)
+FROM node:22-alpine
+RUN apk add --no-cache libc6-compat
+RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
+WORKDIR /repo
+ENV NEXT_TELEMETRY_DISABLED=1
+CMD ["sh", "-c", "pnpm install && pnpm build:shared && pnpm --filter @samkwang/frontend dev"]

@@ -35,7 +35,7 @@ export default async function HomePage() {
       <header className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">SAMKWANG-PROS</h1>
         <p className="mt-1 text-sm text-slate-600">
-          생산관리시스템 · NestJS + Next.js + PostgreSQL 모노레포 골격
+          생산관리시스템 · NestJS + Next.js + PostgreSQL 모노레포 골격ㄹㄹㄹㄹㄹㅇㅇㅇ
         </p>
       </header>
 

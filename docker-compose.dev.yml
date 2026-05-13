@@ -1,0 +1,27 @@
+# 개발(핫 리로드): 프로덕션 frontend 이미지 대신 소스 마운트 + next dev
+# 사용: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# 또는: pnpm compose:dev
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile.dev
+    environment:
+      NODE_ENV: development
+      BACKEND_INTERNAL_URL: http://backend:4000
+      TZ: Asia/Seoul
+      # 일부 환경(Docker Desktop 등)에서 파일 감지가 불안정할 때 폴링
+      WATCHPACK_POLLING: ${WATCHPACK_POLLING:-}
+    volumes:
+      - .:/repo
+      - pros_frontend_dev_root_node_modules:/repo/node_modules
+      - pros_frontend_dev_frontend_node_modules:/repo/frontend/node_modules
+      - pros_frontend_dev_shared_node_modules:/repo/packages/shared/node_modules
+      - pros_frontend_dev_backend_node_modules:/repo/backend/node_modules
+
+volumes:
+  pros_frontend_dev_root_node_modules:
+  pros_frontend_dev_frontend_node_modules:
+  pros_frontend_dev_shared_node_modules:
+  pros_frontend_dev_backend_node_modules:

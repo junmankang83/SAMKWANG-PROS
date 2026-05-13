@@ -18,6 +18,8 @@
     "lint": "pnpm -r lint",
     "compose:up": "docker compose up --build",
     "compose:up:detached": "docker compose up --build -d",
+    "compose:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
+    "compose:dev:detached": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d",
     "compose:down": "docker compose down",
     "compose:logs": "docker compose logs -f",
     "compose:ps": "docker compose ps",
