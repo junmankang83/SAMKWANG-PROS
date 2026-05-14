@@ -1,5 +1,4 @@
 // SAMKWANG-PROS Prisma 스키마
-// 도메인 모델은 추후 확정 후 추가 (예: User, WorkOrder, Equipment, Material, ProductionRecord 등)
 
 generator client {
   provider = "prisma-client-js"
@@ -8,4 +7,56 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum SparePartLedgerEntryType {
+  INBOUND
+  OUTBOUND
+}
+
+/// 사출기 예비부품 마스터(행 단위)
+model SparePartItem {
+  id            String   @id @default(cuid())
+  machineBrand  String
+  productName   String
+  spec          String?
+  optimalQty    Decimal  @default(0) @db.Decimal(14, 4)
+  currentQty    Decimal  @default(0) @db.Decimal(14, 4)
+  remarks       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ledgerEntries SparePartLedgerEntry[]
+
+  @@index([machineBrand, productName])
+}
+
+/// 입출고 이력
+model SparePartLedgerEntry {
+  id         String                    @id @default(cuid())
+  itemId     String
+  item       SparePartItem             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type       SparePartLedgerEntryType
+  qty        Decimal                   @db.Decimal(14, 4)
+  occurredAt DateTime
+  note       String?
+  createdAt  DateTime                  @default(now())
+
+  @@index([itemId, occurredAt])
+}
+
+/// 월별 관리대장 결재 기록 (YYYY-MM 단위)
+model SparePartLedgerPeriod {
+  id          String    @id @default(cuid())
+  periodMonth String    @unique
+  preparedBy  String?
+  preparedAt  DateTime?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  confirmedBy String?
+  confirmedAt DateTime?
+  teamLeadBy  String?
+  teamLeadAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }

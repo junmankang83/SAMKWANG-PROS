@@ -13,7 +13,7 @@ COPY packages/shared ./packages/shared
 COPY backend ./backend
 COPY frontend ./frontend
 
-RUN rm -f packages/shared/tsconfig.tsbuildinfo packages/shared/dist/.tsbuildinfo
+RUN rm -f packages/shared/tsconfig.tsbuildinfo packages/shared/ts-out/.tsbuildinfo
 
 RUN pnpm install --no-frozen-lockfile
 
@@ -31,7 +31,7 @@ ENV NODE_ENV=production
 
 COPY --from=build /repo/package.json /repo/pnpm-workspace.yaml /repo/pnpm-lock.yaml /repo/tsconfig.base.json ./
 COPY --from=build /repo/packages/shared/package.json ./packages/shared/
-COPY --from=build /repo/packages/shared/dist ./packages/shared/dist
+COPY --from=build /repo/packages/shared/ts-out ./packages/shared/ts-out
 COPY --from=build /repo/backend/package.json ./backend/
 COPY --from=build /repo/backend/dist ./backend/dist
 COPY --from=build /repo/backend/prisma ./backend/prisma

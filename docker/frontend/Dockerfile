@@ -11,6 +11,8 @@ FROM base AS build
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY frontend/package.json ./frontend/
+# postinstall가 copy-ui-kit-css를 실행하므로 install 전에 스크립트가 있어야 함
+COPY frontend/scripts ./frontend/scripts/
 
 RUN pnpm install --filter @samkwang/frontend... --no-frozen-lockfile
 

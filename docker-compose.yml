@@ -41,6 +41,9 @@ services:
       PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-samkwang}:${POSTGRES_PASSWORD:-samkwang_dev}@db:5432/${POSTGRES_DB:-samkwang_pros}?schema=public
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      DEMO_AUTH_USERNAME: ${DEMO_AUTH_USERNAME:-demo}
+      DEMO_AUTH_PASSWORD: ${DEMO_AUTH_PASSWORD:-demo}
       # 호스트에서 백엔드 :4000 등으로 / 열 때 프론트(게이트웨이)로 안내 리다이렉트 (포트가 같으면 HTML 안내만)
       PUBLIC_APP_BASE: ${PUBLIC_APP_BASE:-}
       APP_VERSION: ${APP_VERSION:-0.1.0}

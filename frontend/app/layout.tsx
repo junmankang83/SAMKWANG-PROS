@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import { UiKitProvider } from '@/components/UiKitProvider';
 
 export const metadata: Metadata = {
   title: 'SAMKWANG-PROS',
@@ -13,8 +14,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
-        {children}
+      <head>
+        <link rel="stylesheet" href="/samkwang-ui-kit.css" />
+      </head>
+      <body className="min-h-screen bg-app-bg text-app-text antialiased">
+        <UiKitProvider>{children}</UiKitProvider>
       </body>
     </html>
   );

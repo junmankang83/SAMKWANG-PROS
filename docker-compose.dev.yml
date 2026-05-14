@@ -10,6 +10,7 @@ services:
     environment:
       NODE_ENV: development
       BACKEND_INTERNAL_URL: http://backend:4000
+      BACKEND_PROXY_TARGET: http://backend:4000
       TZ: Asia/Seoul
       # 일부 환경(Docker Desktop 등)에서 파일 감지가 불안정할 때 폴링
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-}

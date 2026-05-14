@@ -14,10 +14,15 @@ pnpm-debug.log*
 dist/
 build/
 .next/
+frontend/.next-build/
 out/
 *.tsbuildinfo
 
-# shared: tsc 산출물은 packages/shared/dist 만 (src/ 에 .js·.d.ts 가 있으면 Docker 백엔드 빌드 실패)
+# @samkwang/ui-kit: postinstall / build 시 public 으로 복사
+frontend/public/samkwang-ui-kit.css
+
+# shared: tsc 산출물 (src/ 에 .js·.d.ts 가 있으면 Docker 백엔드 빌드 실패)
+packages/shared/ts-out/
 packages/shared/src/**/*.js
 packages/shared/src/**/*.js.map
 packages/shared/src/**/*.d.ts

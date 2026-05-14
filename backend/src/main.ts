@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 function targetListenPort(publicBase: string): number | null {
@@ -48,6 +49,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
   });
+
+  app.use(cookieParser());
 
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
