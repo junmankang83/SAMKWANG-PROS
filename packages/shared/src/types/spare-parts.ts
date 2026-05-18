@@ -19,9 +19,26 @@ export interface SparePartItemRow {
   outboundQtyInMonth: string;
 }
 
-export interface SparePartItemCreateRequest {
-  machineBrand: string;
+/** 입·출고 집계 기반 재고현황 행 */
+export interface SparePartInventoryRow {
+  id: string;
+  masterId: string | null;
+  partCode: string | null;
   productName: string;
+  spec: string | null;
+  unit: string | null;
+  optimalQty: string;
+  inboundQtyInMonth: string;
+  outboundQtyInMonth: string;
+  currentQty: string;
+  lastInboundDateInMonth: string | null;
+  remarks: string | null;
+}
+
+export interface SparePartItemCreateRequest {
+  masterId?: string | null;
+  machineBrand?: string;
+  productName?: string;
   spec?: string | null;
   optimalQty?: number;
   remarks?: string | null;
@@ -39,6 +56,20 @@ export interface SparePartLedgerPostRequest {
   qty: number;
   occurredAt: string;
   note?: string | null;
+}
+
+/** 입·출고 개별 이력 행 */
+export interface SparePartLedgerEntryRow {
+  id: string;
+  itemId: string;
+  partCode: string | null;
+  machineBrand: string;
+  productName: string;
+  spec: string | null;
+  unit: string | null;
+  qty: string;
+  occurredAt: string;
+  note: string | null;
 }
 
 export interface SparePartLedgerPeriodResponse {

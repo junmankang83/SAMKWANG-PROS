@@ -3,6 +3,7 @@
 import type {
   SparePartItemRow,
   SparePartLedgerPeriodResponse,
+  SparePartMasterRow,
 } from '@samkwang/shared';
 import {
   Button,
@@ -64,13 +65,46 @@ async function readApiError(res: Response): Promise<string> {
   return `요청 실패 (${res.status})`;
 }
 
-export function SparePartsLedger() {
+export type SparePartsLedgerMode = 'inventory' | 'inbound' | 'outbound';
+
+const MODE_META: Record<
+  SparePartsLedgerMode,
+  { title: string; description: string; emptyHint: string }
+> = {
+  inventory: {
+    title: '재고현황',
+    description: '기준월 기준으로 해당 월 입·출고 합계와 현재 재고를 표시합니다.',
+    emptyHint: '등록된 부품이 없습니다. 상단 버튼으로 부품 행을 추가하세요.',
+  },
+  inbound: {
+    title: '부품입고',
+    description: '부품별 입고 수량과 일시를 등록합니다.',
+    emptyHint: '등록된 부품이 없습니다. 재고현황에서 부품 행을 먼저 추가하세요.',
+  },
+  outbound: {
+    title: '부품출고',
+    description: '부품별 출고 수량과 일시를 등록합니다.',
+    emptyHint: '등록된 부품이 없습니다. 재고현황에서 부품 행을 먼저 추가하세요.',
+  },
+};
+
+export function SparePartsLedger({ mode = 'inventory' }: { mode?: SparePartsLedgerMode }) {
+  const meta = MODE_META[mode];
+  const showApproval = mode === 'inventory';
+  const showAddItem = mode === 'inventory';
+  const showInboundAction = mode === 'inbound';
+  const showOutboundAction = mode === 'outbound';
+  const showEditAction = mode === 'inventory';
+  const showActions = showInboundAction || showOutboundAction || showEditAction;
   const [month, setMonth] = useState(defaultMonth);
   const [items, setItems] = useState<SparePartItemRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
+  const [masters, setMasters] = useState<SparePartMasterRow[]>([]);
+  const [addMasterId, setAddMasterId] = useState('');
+  const [addManual, setAddManual] = useState(false);
   const [addForm, setAddForm] = useState({
     machineBrand: '',
     productName: '',
@@ -111,11 +145,10 @@ export function SparePartsLedger() {
 
   const reload = useCallback(async () => {
     setLoadError(null);
-    const [resItems, resPeriod] = await Promise.all([
-      fetch(`/api/spare-parts/items?month=${encodeURIComponent(month)}`, { credentials: 'include' }),
-      fetch(`/api/spare-parts/ledger-period?month=${encodeURIComponent(month)}`, { credentials: 'include' }),
-    ]);
-    if (resItems.status === 401 || resPeriod.status === 401) {
+    const resItems = await fetch(`/api/spare-parts/items?month=${encodeURIComponent(month)}`, {
+      credentials: 'include',
+    });
+    if (resItems.status === 401) {
       window.location.href = '/login';
       return;
     }
@@ -123,11 +156,23 @@ export function SparePartsLedger() {
       setLoadError(await readApiError(resItems));
       return;
     }
+    setItems((await resItems.json()) as SparePartItemRow[]);
+
+    if (!showApproval) {
+      return;
+    }
+    const resPeriod = await fetch(
+      `/api/spare-parts/ledger-period?month=${encodeURIComponent(month)}`,
+      { credentials: 'include' },
+    );
+    if (resPeriod.status === 401) {
+      window.location.href = '/login';
+      return;
+    }
     if (!resPeriod.ok) {
       setLoadError(await readApiError(resPeriod));
       return;
     }
-    setItems((await resItems.json()) as SparePartItemRow[]);
     const p = (await resPeriod.json()) as SparePartLedgerPeriodResponse;
     setApproval({
       preparedBy: p.preparedBy ?? '',
@@ -139,11 +184,39 @@ export function SparePartsLedger() {
       teamLeadBy: p.teamLeadBy ?? '',
       teamLeadAt: p.teamLeadAt ? p.teamLeadAt.slice(0, 16) : '',
     });
-  }, [month]);
+  }, [month, showApproval]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!addOpen) {
+      return;
+    }
+    void (async () => {
+      const res = await fetch('/api/master-data/spare-parts?activeOnly=true', {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        setMasters((await res.json()) as SparePartMasterRow[]);
+      }
+    })();
+  }, [addOpen]);
+
+  function applyMasterSelection(masterId: string) {
+    setAddMasterId(masterId);
+    const m = masters.find((x) => x.id === masterId);
+    if (m) {
+      setAddForm({
+        machineBrand: '',
+        productName: m.productName,
+        spec: m.spec ?? '',
+        optimalQty: m.optimalQty,
+        remarks: m.remarks ?? '',
+      });
+    }
+  }
 
   async function saveApproval() {
     setBusy(true);
@@ -195,17 +268,32 @@ export function SparePartsLedger() {
     setBusy(true);
     setLoadError(null);
     try {
+      if (!addManual && !addMasterId) {
+        setLoadError('기초정보를 선택하거나 직접 입력을 선택해 주세요.');
+        return;
+      }
+      if (addManual && (!addForm.machineBrand.trim() || !addForm.productName.trim())) {
+        setLoadError('사출기와 제품명을 입력해 주세요.');
+        return;
+      }
+      const body =
+        !addManual && addMasterId
+          ? {
+              masterId: addMasterId,
+              remarks: addForm.remarks || null,
+            }
+          : {
+              machineBrand: addForm.machineBrand,
+              productName: addForm.productName,
+              spec: addForm.spec || null,
+              optimalQty: Number(addForm.optimalQty) || 0,
+              remarks: addForm.remarks || null,
+            };
       const res = await fetch('/api/spare-parts/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          machineBrand: addForm.machineBrand,
-          productName: addForm.productName,
-          spec: addForm.spec || null,
-          optimalQty: Number(addForm.optimalQty) || 0,
-          remarks: addForm.remarks || null,
-        }),
+        body: JSON.stringify(body),
       });
       if (res.status === 401) {
         window.location.href = '/login';
@@ -216,6 +304,8 @@ export function SparePartsLedger() {
         return;
       }
       setAddOpen(false);
+      setAddMasterId('');
+      setAddManual(false);
       setAddForm({ machineBrand: '', productName: '', spec: '', optimalQty: '1', remarks: '' });
       await reload();
     } finally {
@@ -258,6 +348,16 @@ export function SparePartsLedger() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function openLedger(row: SparePartItemRow, type: 'INBOUND' | 'OUTBOUND') {
+    setLedgerType(type);
+    setLedgerTarget(row);
+    setLedgerQty('1');
+    setLedgerNote('');
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    setLedgerAt(d.toISOString().slice(0, 16));
   }
 
   function openEdit(row: SparePartItemRow) {
@@ -319,10 +419,8 @@ export function SparePartsLedger() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-app-text">사출기 예비 부품 입출고 관리대장</h1>
-          <p className="mt-1 text-sm text-app-muted">
-            기준월 기준으로 해당 월 입·출고 합계와 마지막 입고일을 표시합니다.
-          </p>
+          <h1 className="text-xl font-semibold text-app-text">{meta.title}</h1>
+          <p className="mt-1 text-sm text-app-muted">{meta.description}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <FormField label="기준월">
@@ -349,6 +447,7 @@ export function SparePartsLedger() {
         />
       ) : null}
 
+      {showApproval ? (
       <Card className="shadow-card">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-base">결재</CardTitle>
@@ -383,12 +482,15 @@ export function SparePartsLedger() {
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
+      {showAddItem ? (
       <div className="flex justify-end">
         <Button type="button" variant="primary" onClick={() => setAddOpen(true)}>
           부품 행 추가
         </Button>
       </div>
+      ) : null}
 
       <Card className="shadow-card">
         <CardContent className="p-0 pt-4">
@@ -404,14 +506,17 @@ export function SparePartsLedger() {
                 <th>현재재고</th>
                 <th>적정재고</th>
                 <th>비고</th>
-                <th>작업</th>
+                {showActions && <th>작업</th>}
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-app-muted">
-                    등록된 부품이 없습니다. 상단 버튼으로 추가하세요.
+                  <td
+                    colSpan={showActions ? 10 : 9}
+                    className="py-8 text-center text-app-muted"
+                  >
+                    {meta.emptyHint}
                   </td>
                 </tr>
               ) : (
@@ -428,45 +533,43 @@ export function SparePartsLedger() {
                     <td className="max-w-[140px] truncate text-app-muted" title={row.remarks ?? ''}>
                       {row.remarks ?? '—'}
                     </td>
-                    <td className="space-x-1 whitespace-nowrap">
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-success"
-                        onClick={() => {
-                          setLedgerType('INBOUND');
-                          setLedgerTarget(row);
-                          setLedgerQty('1');
-                          setLedgerNote('');
-                        }}
-                      >
-                        입고
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-warning"
-                        onClick={() => {
-                          setLedgerType('OUTBOUND');
-                          setLedgerTarget(row);
-                          setLedgerQty('1');
-                          setLedgerNote('');
-                        }}
-                      >
-                        출고
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-app-muted"
-                        onClick={() => openEdit(row)}
-                      >
-                        수정
-                      </Button>
-                    </td>
+                    {showActions && (
+                      <td className="space-x-1 whitespace-nowrap">
+                        {showInboundAction ? (
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-success"
+                            onClick={() => openLedger(row, 'INBOUND')}
+                          >
+                            입고
+                          </Button>
+                        ) : null}
+                        {showOutboundAction ? (
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-warning"
+                            onClick={() => openLedger(row, 'OUTBOUND')}
+                          >
+                            출고
+                          </Button>
+                        ) : null}
+                        {showEditAction ? (
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-app-muted"
+                            onClick={() => openEdit(row)}
+                          >
+                            수정
+                          </Button>
+                        ) : null}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -483,22 +586,55 @@ export function SparePartsLedger() {
             </DialogHeader>
             <DialogBody>
               <FormGrid>
+                <FormField label="기초정보 선택" fullWidth>
+                  <select
+                    className="sk-form-input w-full"
+                    value={addMasterId}
+                    disabled={addManual}
+                    onChange={(e) => applyMasterSelection(e.target.value)}
+                  >
+                    <option value="">— 기초정보에서 선택 —</option>
+                    {masters.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.partCode} · {m.productName}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label=" " fullWidth>
+                  <label className="flex items-center gap-2 text-sm text-app-muted">
+                    <input
+                      type="checkbox"
+                      checked={addManual}
+                      onChange={(e) => {
+                        setAddManual(e.target.checked);
+                        if (e.target.checked) {
+                          setAddMasterId('');
+                        }
+                      }}
+                    />
+                    기초정보 없이 직접 입력 (레거시)
+                  </label>
+                </FormField>
                 <FormField label="사출기" required>
                   <Input
-                    required
+                    required={addManual || !addMasterId}
+                    readOnly={!addManual && !!addMasterId}
                     value={addForm.machineBrand}
                     onChange={(e) => setAddForm((f) => ({ ...f, machineBrand: e.target.value }))}
                   />
                 </FormField>
                 <FormField label="제품명" required>
                   <Input
-                    required
+                    required={addManual || !addMasterId}
+                    readOnly={!addManual && !!addMasterId}
                     value={addForm.productName}
                     onChange={(e) => setAddForm((f) => ({ ...f, productName: e.target.value }))}
                   />
                 </FormField>
                 <FormField label="규격">
                   <Input
+                    readOnly={!addManual && !!addMasterId}
                     value={addForm.spec}
                     onChange={(e) => setAddForm((f) => ({ ...f, spec: e.target.value }))}
                   />
@@ -508,6 +644,7 @@ export function SparePartsLedger() {
                     type="number"
                     min={0}
                     step="any"
+                    readOnly={!addManual && !!addMasterId}
                     value={addForm.optimalQty}
                     onChange={(e) => setAddForm((f) => ({ ...f, optimalQty: e.target.value }))}
                   />

@@ -1,4 +1,4 @@
-@tailwind base;
+/* base( preflight )는 ui-kit/styles 에서 제공 — @tailwind base 는 중복·override 원인 */
 @tailwind components;
 @tailwind utilities;
 
@@ -8,4 +8,122 @@
 
 html, body {
   height: 100%;
+}
+
+/* 기초정보·관리대장 등 데이터 테이블 — ui-kit Table(w-max) 열 정렬 불일치 방지 */
+.pros-data-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
+.pros-data-table thead th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  vertical-align: middle;
+  font-weight: 600;
+  color: var(--app-text);
+  background: var(--sk-table-header-bg, var(--gray-10));
+  border-bottom: 1px solid var(--app-border);
+  white-space: nowrap;
+}
+
+.pros-data-table.pros-data-table-head-center thead th {
+  text-align: center;
+}
+
+.pros-data-table tbody td {
+  padding: 0.875rem 1rem;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--app-border);
+  word-break: break-word;
+  background-color: #fff;
+}
+
+.pros-data-table tbody tr {
+  min-height: 3rem;
+  background-color: #fff;
+}
+
+.pros-data-table tbody tr:hover {
+  background: var(--sk-table-hover, rgba(141, 141, 141, 0.12));
+}
+
+.pros-data-table th.pros-cell-num,
+.pros-data-table td.pros-cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pros-data-table th.pros-cell-center,
+.pros-data-table td.pros-cell-center {
+  text-align: center;
+}
+
+.pros-data-table th.pros-cell-actions,
+.pros-data-table td.pros-cell-actions {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pros-data-table td.pros-table-empty {
+  text-align: center !important;
+  padding: 2.5rem 1rem;
+  color: var(--app-muted);
+}
+
+.pros-data-table th.pros-cell-seq,
+.pros-data-table td.pros-cell-seq {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-muted);
+}
+
+.pros-page-size-select {
+  min-width: 4.5rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.pros-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--app-border);
+}
+
+.pros-pagination-btn {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1;
+  color: var(--app-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.pros-pagination-btn:hover:not(:disabled) {
+  background: var(--app-hover);
+  border-color: var(--app-border);
+}
+
+.pros-pagination-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pros-pagination-btn-active {
+  font-weight: 600;
+  color: var(--brand, #2563eb);
+  border-color: var(--app-border);
+  background: var(--app-surface-02, #fff);
 }

@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, SparePartLedgerEntryType } from '@prisma/client';
 import type {
+  SparePartInventoryRow,
   SparePartItemRow,
+  SparePartLedgerEntryRow,
   SparePartLedgerPeriodResponse,
 } from '@samkwang/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -105,12 +107,123 @@ export class SparePartsService {
     });
   }
 
+  async listInventory(periodMonth: string, q?: string): Promise<SparePartInventoryRow[]> {
+    const { start, end } = monthWindow(periodMonth);
+    const term = q?.trim().toLowerCase();
+
+    const items = await this.prisma.sparePartItem.findMany({
+      where: {
+        masterId: { not: null },
+        ...(term
+          ? {
+              OR: [
+                { productName: { contains: term, mode: 'insensitive' } },
+                { master: { partCode: { contains: term, mode: 'insensitive' } } },
+                { master: { productName: { contains: term, mode: 'insensitive' } } },
+              ],
+            }
+          : {}),
+      },
+      include: { master: true },
+      orderBy: [{ master: { sortOrder: 'asc' } }, { master: { partCode: 'asc' } }],
+    });
+
+    if (items.length === 0) {
+      return [];
+    }
+
+    const itemIds = items.map((i) => i.id);
+    const entries = await this.prisma.sparePartLedgerEntry.findMany({
+      where: {
+        itemId: { in: itemIds },
+        occurredAt: { gte: start, lt: end },
+      },
+    });
+
+    const agg = new Map<
+      string,
+      { inbound: Prisma.Decimal; outbound: Prisma.Decimal; lastInbound: Date | null }
+    >();
+    for (const item of items) {
+      agg.set(item.id, {
+        inbound: new Prisma.Decimal(0),
+        outbound: new Prisma.Decimal(0),
+        lastInbound: null,
+      });
+    }
+
+    for (const e of entries) {
+      const row = agg.get(e.itemId);
+      if (!row) {
+        continue;
+      }
+      if (e.type === SparePartLedgerEntryType.INBOUND) {
+        row.inbound = row.inbound.add(e.qty);
+        if (!row.lastInbound || e.occurredAt > row.lastInbound) {
+          row.lastInbound = e.occurredAt;
+        }
+      } else {
+        row.outbound = row.outbound.add(e.qty);
+      }
+    }
+
+    return items.map((item) => {
+      const master = item.master!;
+      const a = agg.get(item.id)!;
+      return {
+        id: item.id,
+        masterId: item.masterId,
+        partCode: master.partCode,
+        productName: master.productName,
+        spec: master.spec ?? item.spec,
+        unit: master.unit,
+        optimalQty: decStr(master.optimalQty),
+        inboundQtyInMonth: decStr(a.inbound),
+        outboundQtyInMonth: decStr(a.outbound),
+        currentQty: decStr(item.currentQty),
+        lastInboundDateInMonth: a.lastInbound ? a.lastInbound.toISOString().slice(0, 10) : null,
+        remarks: item.remarks ?? master.remarks,
+      };
+    });
+  }
+
   async createItem(dto: CreateSparePartItemDto) {
+    if (dto.masterId) {
+      const master = await this.prisma.sparePartMaster.findUnique({
+        where: { id: dto.masterId },
+      });
+      if (!master) {
+        throw new NotFoundException('기초정보를 찾을 수 없습니다.');
+      }
+      if (!master.isActive) {
+        throw new BadRequestException('비활성화된 기초정보는 사용할 수 없습니다.');
+      }
+      const optimal =
+        dto.optimalQty !== undefined
+          ? new Prisma.Decimal(dto.optimalQty)
+          : master.optimalQty;
+      return this.prisma.sparePartItem.create({
+        data: {
+          masterId: master.id,
+          machineBrand: master.machineBrand,
+          productName: master.productName,
+          spec: master.spec,
+          optimalQty: optimal,
+          currentQty: new Prisma.Decimal(0),
+          remarks: dto.remarks ?? master.remarks,
+        },
+      });
+    }
+
+    if (!dto.machineBrand?.trim() || !dto.productName?.trim()) {
+      throw new BadRequestException('masterId 또는 사출기·제품명이 필요합니다.');
+    }
+
     const optimal = new Prisma.Decimal(dto.optimalQty ?? 0);
     return this.prisma.sparePartItem.create({
       data: {
-        machineBrand: dto.machineBrand,
-        productName: dto.productName,
+        machineBrand: dto.machineBrand.trim(),
+        productName: dto.productName.trim(),
         spec: dto.spec ?? null,
         optimalQty: optimal,
         currentQty: new Prisma.Decimal(0),
@@ -134,6 +247,99 @@ export class SparePartsService {
     } catch {
       throw new NotFoundException('부품 항목을 찾을 수 없습니다.');
     }
+  }
+
+  private async listEntriesByType(
+    periodMonth: string,
+    type: SparePartLedgerEntryType,
+    q?: string,
+  ): Promise<SparePartLedgerEntryRow[]> {
+    const { start, end } = monthWindow(periodMonth);
+    const term = q?.trim();
+    const entries = await this.prisma.sparePartLedgerEntry.findMany({
+      where: {
+        type,
+        occurredAt: { gte: start, lt: end },
+        ...(term
+          ? {
+              item: {
+                OR: [
+                  { productName: { contains: term, mode: 'insensitive' } },
+                  { machineBrand: { contains: term, mode: 'insensitive' } },
+                  { master: { partCode: { contains: term, mode: 'insensitive' } } },
+                ],
+              },
+            }
+          : {}),
+      },
+      include: {
+        item: { include: { master: true } },
+      },
+      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    return entries.map((e) => ({
+      id: e.id,
+      itemId: e.itemId,
+      partCode: e.item.master?.partCode ?? null,
+      machineBrand: e.item.machineBrand,
+      productName: e.item.productName,
+      spec: e.item.spec,
+      unit: e.item.master?.unit ?? null,
+      qty: decStr(e.qty),
+      occurredAt: e.occurredAt.toISOString(),
+      note: e.note,
+    }));
+  }
+
+  listInboundEntries(periodMonth: string, q?: string): Promise<SparePartLedgerEntryRow[]> {
+    return this.listEntriesByType(periodMonth, SparePartLedgerEntryType.INBOUND, q);
+  }
+
+  listOutboundEntries(periodMonth: string, q?: string): Promise<SparePartLedgerEntryRow[]> {
+    return this.listEntriesByType(periodMonth, SparePartLedgerEntryType.OUTBOUND, q);
+  }
+
+  async ensureItemForMaster(masterId: string) {
+    const master = await this.prisma.sparePartMaster.findUnique({ where: { id: masterId } });
+    if (!master) {
+      throw new NotFoundException('부품정보를 찾을 수 없습니다.');
+    }
+    if (!master.isActive) {
+      throw new BadRequestException('비활성화된 부품정보는 사용할 수 없습니다.');
+    }
+    const existing = await this.prisma.sparePartItem.findFirst({ where: { masterId } });
+    if (existing) {
+      return existing;
+    }
+    return this.createItem({ masterId });
+  }
+
+  async getStockForMaster(masterId: string): Promise<{ currentQty: string }> {
+    const item = await this.prisma.sparePartItem.findFirst({ where: { masterId } });
+    return { currentQty: item ? decStr(item.currentQty) : '0' };
+  }
+
+  async postInboundByMaster(
+    masterId: string,
+    qty: number,
+    occurredAt: string,
+    note: string | null | undefined,
+  ) {
+    const item = await this.ensureItemForMaster(masterId);
+    await this.postInbound(item.id, qty, occurredAt, note);
+    return { ok: true as const };
+  }
+
+  async postOutboundByMaster(
+    masterId: string,
+    qty: number,
+    occurredAt: string,
+    note: string | null | undefined,
+  ) {
+    const item = await this.ensureItemForMaster(masterId);
+    await this.postOutbound(item.id, qty, occurredAt, note);
+    return { ok: true as const };
   }
 
   async postInbound(itemId: string, qty: number, occurredAt: string, note: string | null | undefined) {

@@ -7,16 +7,24 @@ import {
   IsString,
   Matches,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateSparePartItemDto {
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  machineBrand!: string;
+  masterId?: string;
 
+  @ValidateIf((o: CreateSparePartItemDto) => !o.masterId)
   @IsString()
   @IsNotEmpty()
-  productName!: string;
+  machineBrand?: string;
+
+  @ValidateIf((o: CreateSparePartItemDto) => !o.masterId)
+  @IsString()
+  @IsNotEmpty()
+  productName?: string;
 
   @IsOptional()
   @IsString()
@@ -77,6 +85,16 @@ export class SparePartItemsQueryDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}$/)
   month?: string;
+}
+
+export class LedgerEntriesQueryDto {
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/)
+  month?: string;
+
+  @IsOptional()
+  @IsString()
+  q?: string;
 }
 
 export class LedgerPeriodQueryDto {

@@ -5,6 +5,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
+import { MasterDataModule } from './master-data/master-data.module';
 import { SparePartsModule } from './spare-parts/spare-parts.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { SparePartsModule } from './spare-parts/spare-parts.module';
     PrismaModule,
     AuthModule,
     HealthModule,
+    MasterDataModule,
     SparePartsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }],

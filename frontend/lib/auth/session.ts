@@ -13,15 +13,19 @@ export async function getServerSession(): Promise<SessionUser | null> {
     return null;
   }
 
-  const res = await fetch(`${getBackendBaseUrl()}/api/auth/me`, {
-    headers: { Cookie: `${SESSION_COOKIE}=${token}` },
-    cache: 'no-store',
-  });
+  try {
+    const res = await fetch(`${getBackendBaseUrl()}/api/auth/me`, {
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+      cache: 'no-store',
+    });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = (await res.json()) as AuthMeResponse;
+    return data.user ?? null;
+  } catch {
     return null;
   }
-
-  const data = (await res.json()) as AuthMeResponse;
-  return data.user;
 }

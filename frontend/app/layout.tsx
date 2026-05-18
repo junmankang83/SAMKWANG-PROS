@@ -15,7 +15,8 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <head>
-        <link rel="stylesheet" href="/samkwang-ui-kit.css" />
+        {/* PostCSS 미처리 정적 CSS — ui-kit(TW v4)을 앱(TW v3)과 분리 */}
+        <link rel="stylesheet" href="/samkwang-ui-kit.css" precedence="high" />
       </head>
       <body className="min-h-screen bg-app-bg text-app-text antialiased">
         <UiKitProvider>{children}</UiKitProvider>

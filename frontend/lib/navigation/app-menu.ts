@@ -13,10 +13,23 @@ export type AppDomainMenu = {
 
 export const APP_DOMAINS: AppDomainMenu[] = [
   {
+    id: 'master-data',
+    label: '기준정보',
+    basePath: '/app/master-data',
+    items: [
+      { label: '사용자 관리', href: '/app/master-data/users' },
+      { label: '부품정보관리', href: '/app/master-data/spare-parts' },
+    ],
+  },
+  {
     id: 'production',
-    label: '생산관리',
+    label: '부품관리',
     basePath: '/app/production',
-    items: [{ label: '사출기 예비부품 입출고', href: '/app/production/spare-parts' }],
+    items: [
+      { label: '부품입고', href: '/app/production/inbound' },
+      { label: '부품출고', href: '/app/production/outbound' },
+      { label: '재고현황', href: '/app/production/inventory' },
+    ],
   },
   {
     id: 'mold',

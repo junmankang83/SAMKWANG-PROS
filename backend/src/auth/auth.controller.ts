@@ -5,29 +5,56 @@ import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { SESSION_COOKIE_NAME } from './auth.constants';
 import { AuthLoginDto } from './dto/auth-login.dto';
+import { AuthRegisterDto } from './dto/auth-register.dto';
 
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function setSessionCookie(res: Response, token: string): void {
+  const secure = process.env.NODE_ENV === 'production';
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure,
+    path: '/',
+    maxAge: SESSION_MAX_AGE_MS,
+  });
+}
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Post('register')
+  async register(
+    @Body() body: AuthRegisterDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.register(
+      body.username,
+      body.password,
+      body.organization,
+    );
+    const token = this.authService.createSessionToken(
+      result.user.id,
+      result.user.username,
+    );
+    setSessionCookie(res, token);
+    return result;
+  }
+
+  @Public()
   @Post('login')
-  login(
+  async login(
     @Body() body: AuthLoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = this.authService.login(body.username, body.password);
-    const token = this.authService.createSessionToken(result.user.username);
-    const secure = process.env.NODE_ENV === 'production';
-    res.cookie(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure,
-      path: '/',
-      maxAge: SESSION_MAX_AGE_MS,
-    });
+    const result = await this.authService.login(body.username, body.password);
+    const token = this.authService.createSessionToken(
+      result.user.id,
+      result.user.username,
+    );
+    setSessionCookie(res, token);
     return result;
   }
 
@@ -39,7 +66,7 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@Req() req: Request) {
+  async me(@Req() req: Request) {
     return this.authService.me(req.sessionUser);
   }
 }

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { CreateSparePartItemDto, LedgerEntryBodyDto, LedgerPeriodQueryDto, SparePartItemsQueryDto, UpdateSparePartItemDto, UpsertLedgerPeriodBodyDto } from './dto/spare-parts.dto';
+import { CreateSparePartItemDto, LedgerEntriesQueryDto, LedgerEntryBodyDto, LedgerPeriodQueryDto, SparePartItemsQueryDto, UpdateSparePartItemDto, UpsertLedgerPeriodBodyDto } from './dto/spare-parts.dto';
 import { SparePartsService } from './spare-parts.service';
 
 @Controller('spare-parts')
@@ -12,6 +12,24 @@ export class SparePartsController {
     return this.spareParts.listItemsForMonth(month);
   }
 
+  @Get('inventory')
+  listInventory(@Query() query: LedgerEntriesQueryDto) {
+    const month = this.spareParts.resolveMonth(query.month);
+    return this.spareParts.listInventory(month, query.q);
+  }
+
+  @Get('inbound-entries')
+  listInboundEntries(@Query() query: LedgerEntriesQueryDto) {
+    const month = this.spareParts.resolveMonth(query.month);
+    return this.spareParts.listInboundEntries(month, query.q);
+  }
+
+  @Get('outbound-entries')
+  listOutboundEntries(@Query() query: LedgerEntriesQueryDto) {
+    const month = this.spareParts.resolveMonth(query.month);
+    return this.spareParts.listOutboundEntries(month, query.q);
+  }
+
   @Post('items')
   createItem(@Body() dto: CreateSparePartItemDto) {
     return this.spareParts.createItem(dto);
@@ -20,6 +38,21 @@ export class SparePartsController {
   @Patch('items/:id')
   updateItem(@Param('id') id: string, @Body() dto: UpdateSparePartItemDto) {
     return this.spareParts.updateItem(id, dto);
+  }
+
+  @Get('masters/:masterId/stock')
+  getMasterStock(@Param('masterId') masterId: string) {
+    return this.spareParts.getStockForMaster(masterId);
+  }
+
+  @Post('masters/:masterId/inbound')
+  inboundByMaster(@Param('masterId') masterId: string, @Body() dto: LedgerEntryBodyDto) {
+    return this.spareParts.postInboundByMaster(masterId, dto.qty, dto.occurredAt, dto.note);
+  }
+
+  @Post('masters/:masterId/outbound')
+  outboundByMaster(@Param('masterId') masterId: string, @Body() dto: LedgerEntryBodyDto) {
+    return this.spareParts.postOutboundByMaster(masterId, dto.qty, dto.occurredAt, dto.note);
   }
 
   @Post('items/:id/inbound')

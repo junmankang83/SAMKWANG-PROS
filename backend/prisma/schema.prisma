@@ -14,9 +14,47 @@ enum SparePartLedgerEntryType {
   OUTBOUND
 }
 
-/// 사출기 예비부품 마스터(행 단위)
+/// 시스템 사용자 (회원가입)
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  organization String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// 사출기 예비부품 기초정보 (기준정보)
+model SparePartMaster {
+  id              String   @id @default(cuid())
+  partCode        String   @unique @db.VarChar(50)
+  machineBrand    String   @db.VarChar(100)
+  productName     String   @db.VarChar(200)
+  spec            String?  @db.VarChar(200)
+  unit            String   @default("EA") @db.VarChar(20)
+  optimalQty      Decimal  @default(0) @db.Decimal(14, 4)
+  manufacturer    String?  @db.VarChar(100)
+  storageLocation String?  @db.VarChar(100)
+  leadTimeDays    Int?
+  remarks         String?
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdBy       String?  @db.VarChar(100)
+  updatedBy       String?  @db.VarChar(100)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items SparePartItem[]
+
+  @@index([machineBrand, productName])
+  @@index([isActive, sortOrder])
+}
+
+/// 사출기 예비부품 입출고 행
 model SparePartItem {
   id            String   @id @default(cuid())
+  masterId      String?
+  master        SparePartMaster? @relation(fields: [masterId], references: [id], onDelete: SetNull)
   machineBrand  String
   productName   String
   spec          String?
@@ -29,6 +67,7 @@ model SparePartItem {
   ledgerEntries SparePartLedgerEntry[]
 
   @@index([machineBrand, productName])
+  @@index([masterId])
 }
 
 /// 입출고 이력

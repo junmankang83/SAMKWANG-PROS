@@ -12,6 +12,7 @@ import {
   CardTitle,
   Input,
 } from '@samkwang/ui-kit';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
@@ -39,18 +40,18 @@ export function LoginForm() {
         setError(body?.message ?? '로그인에 실패했습니다.');
         return;
       }
-      router.push('/app');
-      router.refresh();
+      window.location.assign('/app');
     } finally {
       setPending(false);
     }
   }
 
   return (
+    <>
     <Card className="shadow-card">
       <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl tracking-tight">SAMKWANG-PROS</CardTitle>
-        <CardDescription>생산관리시스템 로그인</CardDescription>
+        <CardTitle className="text-2xl tracking-tight">SAMKWANG-Plus</CardTitle>
+        <CardDescription>ERP번외관리시스템 로그인</CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
@@ -81,7 +82,6 @@ export function LoginForm() {
             <Button
               type="submit"
               variant="primary"
-              size="lg"
               fullWidth
               loading={pending}
               disabled={pending}
@@ -92,5 +92,7 @@ export function LoginForm() {
         </CardContent>
       </form>
     </Card>
+
+    </>
   );
 }

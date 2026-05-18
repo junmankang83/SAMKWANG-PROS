@@ -1,3 +1,9 @@
+export interface AuthUser {
+  id: string;
+  username: string;
+  organization?: string;
+}
+
 export interface AuthLoginRequest {
   username: string;
   password: string;
@@ -5,11 +11,22 @@ export interface AuthLoginRequest {
 
 export interface AuthLoginResponse {
   ok: boolean;
-  user: { id: string; username: string };
+  user: AuthUser;
+}
+
+export interface AuthRegisterRequest {
+  username: string;
+  password: string;
+  organization: string;
+}
+
+export interface AuthRegisterResponse {
+  ok: boolean;
+  user: AuthUser;
 }
 
 export interface AuthMeResponse {
-  user: { id: string; username: string };
+  user: AuthUser;
 }
 
 export interface AuthLogoutResponse {
