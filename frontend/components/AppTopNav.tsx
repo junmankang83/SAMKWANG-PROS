@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { APP_DOMAINS } from '@/lib/navigation/app-menu';
 
 const navLinkBase =
-  'inline-flex h-8 shrink-0 items-center justify-center rounded-md px-3 text-sm font-medium transition-colors no-underline';
+  'inline-flex h-8 shrink-0 items-center justify-center rounded-md px-3 text-base font-medium transition-colors no-underline';
 const navLinkIdle = `${navLinkBase} text-app-text hover:bg-app-hover`;
 const navLinkActive = `${navLinkBase} bg-brand text-app-text-on-color hover:bg-brand-hover`;
 
@@ -50,7 +50,7 @@ export function AppTopNav() {
         type="button"
         variant="secondary"
         size="sm"
-        className="ml-2 shrink-0"
+        className="ml-2 shrink-0 text-[14px]"
         onClick={() => void logout()}
       >
         로그아웃

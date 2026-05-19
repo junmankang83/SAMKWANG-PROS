@@ -1,6 +1,6 @@
 'use client';
 
-import type { SparePartLedgerEntryRow, SparePartMasterRow } from '@samkwang/shared';
+import type { SparePartLedgerEntryRow, SparePartMasterRow, ToolRow } from '@samkwang/shared';
 import {
   Alert,
   AlertDescription,
@@ -19,11 +19,17 @@ import {
   Input,
 } from '@samkwang/ui-kit';
 import { MasterPartSearchSelect } from '@/components/MasterPartSearchSelect';
-import { useCallback, useEffect, useState } from 'react';
+import { ToolSearchSelect } from '@/components/ToolSearchSelect';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-function defaultMonth(): string {
+function defaultPeriodStart(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function defaultPeriodEnd(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function toIsoFromLocalDatetime(value: string): string | null {
@@ -76,6 +82,7 @@ async function readApiError(res: Response): Promise<string> {
 
 const emptyForm = () => ({
   masterId: '',
+  toolId: '',
   qty: '1',
   occurredAt: (() => {
     const d = new Date();
@@ -86,18 +93,28 @@ const emptyForm = () => ({
 });
 
 export function SparePartsInbound() {
-  const [month, setMonth] = useState(defaultMonth);
+  const [periodStart, setPeriodStart] = useState(defaultPeriodStart);
+  const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd);
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<SparePartLedgerEntryRow[]>([]);
   const [masters, setMasters] = useState<SparePartMasterRow[]>([]);
+  const [tools, setTools] = useState<ToolRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyForm);
 
+  const selectedMaster = useMemo(
+    () => masters.find((m) => m.id === addForm.masterId),
+    [masters, addForm.masterId],
+  );
+
   const reload = useCallback(async () => {
     setLoadError(null);
-    const params = new URLSearchParams({ month });
+    const params = new URLSearchParams({
+      inboundStart: periodStart,
+      inboundEnd: periodEnd,
+    });
     if (search.trim()) {
       params.set('q', search.trim());
     }
@@ -113,7 +130,7 @@ export function SparePartsInbound() {
       return;
     }
     setRows((await res.json()) as SparePartLedgerEntryRow[]);
-  }, [month, search]);
+  }, [periodStart, periodEnd, search]);
 
   const loadMasters = useCallback(async () => {
     const res = await fetch('/api/master-data/spare-parts?activeOnly=true', {
@@ -124,6 +141,15 @@ export function SparePartsInbound() {
     }
   }, []);
 
+  const loadTools = useCallback(async () => {
+    const res = await fetch('/api/master-data/tools?activeOnly=true', {
+      credentials: 'include',
+    });
+    if (res.ok) {
+      setTools((await res.json()) as ToolRow[]);
+    }
+  }, []);
+
   useEffect(() => {
     void reload();
   }, [reload]);
@@ -131,8 +157,9 @@ export function SparePartsInbound() {
   useEffect(() => {
     if (addOpen) {
       void loadMasters();
+      void loadTools();
     }
-  }, [addOpen, loadMasters]);
+  }, [addOpen, loadMasters, loadTools]);
 
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -151,6 +178,7 @@ export function SparePartsInbound() {
           qty: Number(addForm.qty),
           occurredAt: toIsoFromLocalDatetime(addForm.occurredAt),
           note: addForm.note || null,
+          toolId: addForm.toolId || selectedMaster?.toolId || null,
         }),
       });
       if (res.status === 401) {
@@ -177,8 +205,19 @@ export function SparePartsInbound() {
           <p className="mt-1 text-sm text-app-muted">부품별 입고 수량과 일시를 등록·조회합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <FormField label="기준월">
-            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          <FormField label="입고시작일자">
+            <Input
+              type="date"
+              value={periodStart}
+              onChange={(e) => setPeriodStart(e.target.value)}
+            />
+          </FormField>
+          <FormField label="입고종료일자">
+            <Input
+              type="date"
+              value={periodEnd}
+              onChange={(e) => setPeriodEnd(e.target.value)}
+            />
           </FormField>
           <FormField label="검색">
             <Input
@@ -203,16 +242,16 @@ export function SparePartsInbound() {
       <Card className="shadow-card">
         <CardContent className="p-0 pt-4">
           <div className="overflow-x-auto">
-            <table className="pros-data-table text-app-text">
+            <table className="pros-data-table pros-data-table-head-center pros-ledger-table text-app-text">
               <colgroup>
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '14%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -220,12 +259,8 @@ export function SparePartsInbound() {
                   <th scope="col">사출기</th>
                   <th scope="col">제품명</th>
                   <th scope="col">규격</th>
-                  <th scope="col" className="pros-cell-center">
-                    단위
-                  </th>
-                  <th scope="col" className="pros-cell-num">
-                    입고수량
-                  </th>
+                  <th scope="col">단위</th>
+                  <th scope="col">입고수량</th>
                   <th scope="col">입고일시</th>
                   <th scope="col">비고</th>
                 </tr>
@@ -240,16 +275,19 @@ export function SparePartsInbound() {
                 ) : (
                   rows.map((row) => (
                     <tr key={row.id}>
-                      <td className="font-mono text-xs">{row.partCode ?? '—'}</td>
-                      <td>{row.machineBrand}</td>
-                      <td className="font-medium">{row.productName}</td>
-                      <td className="text-app-muted">{row.spec ?? '—'}</td>
+                      <td className="pros-cell-center font-mono text-xs">{row.partCode ?? '—'}</td>
+                      <td className="pros-cell-center">{row.machineBrand}</td>
+                      <td className="pros-cell-center font-medium">{row.productName}</td>
+                      <td className="pros-cell-center text-app-muted">{row.spec ?? '—'}</td>
                       <td className="pros-cell-center">{row.unit ?? '—'}</td>
-                      <td className="pros-cell-num">{formatQtyDisplay(row.qty)}</td>
-                      <td className="font-mono text-xs text-app-muted">
+                      <td className="pros-cell-center tabular-nums">{formatQtyDisplay(row.qty)}</td>
+                      <td className="pros-cell-center font-mono text-xs text-app-muted">
                         {formatOccurredAt(row.occurredAt)}
                       </td>
-                      <td className="max-w-[140px] truncate text-app-muted" title={row.note ?? ''}>
+                      <td
+                        className="pros-cell-center truncate text-app-muted"
+                        title={row.note ?? ''}
+                      >
                         {row.note ?? '—'}
                       </td>
                     </tr>
@@ -274,12 +312,32 @@ export function SparePartsInbound() {
                     required
                     masters={masters}
                     value={addForm.masterId}
-                    onChange={(masterId) => setAddForm((f) => ({ ...f, masterId }))}
+                    onChange={(masterId) => {
+                      const m = masters.find((x) => x.id === masterId);
+                      setAddForm((f) => ({
+                        ...f,
+                        masterId,
+                        toolId: m?.toolId ?? '',
+                      }));
+                    }}
                   />
                 </FormField>
                 {masters.length === 0 ? (
                   <p className="text-sm text-app-muted">
                     기준정보 · 부품정보관리에서 사용 중인 부품을 먼저 등록해 주세요.
+                  </p>
+                ) : null}
+                <FormField label="사출기">
+                  <ToolSearchSelect
+                    tools={tools}
+                    value={addForm.toolId}
+                    onChange={(toolId) => setAddForm((f) => ({ ...f, toolId }))}
+                    placeholder="설비코드·설비명·번호 검색"
+                  />
+                </FormField>
+                {tools.length === 0 ? (
+                  <p className="text-sm text-app-muted">
+                    기준정보 · 설비정보관리에서 사출기를 먼저 동기화/등록해 주세요.
                   </p>
                 ) : null}
                 <FormField label="입고수량" required>

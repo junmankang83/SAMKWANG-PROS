@@ -79,6 +79,10 @@ export class LedgerEntryBodyDto {
   @IsOptional()
   @IsString()
   note?: string | null;
+
+  @IsOptional()
+  @IsString()
+  toolId?: string | null;
 }
 
 export class SparePartItemsQueryDto {
@@ -87,14 +91,45 @@ export class SparePartItemsQueryDto {
   month?: string;
 }
 
+/** 입·출고 내역 목록 조회 (기간 또는 월) */
 export class LedgerEntriesQueryDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}$/)
   month?: string;
 
   @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  inboundStart?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  inboundEnd?: string;
+
+  @IsOptional()
   @IsString()
   q?: string;
+}
+
+export class InventoryQueryDto {
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/)
+  month?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  inboundStart?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  inboundEnd?: string;
+
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  asOfDate?: string;
 }
 
 export class LedgerPeriodQueryDto {

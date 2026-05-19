@@ -9,6 +9,53 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateSparePartItemDto, UpdateSparePartItemDto, UpsertLedgerPeriodBodyDto } from './dto/spare-parts.dto';
 
+function resolveMachineName(
+  master: { machineBrand: string; tool?: { toolName: string } | null } | null,
+  itemMachineBrand: string,
+): string {
+  if (master?.tool?.toolName) {
+    return master.tool.toolName;
+  }
+  if (master?.machineBrand) {
+    return master.machineBrand;
+  }
+  return itemMachineBrand;
+}
+
+/** 입고 이력 기준 사출기(설비) 그룹 키 */
+function inboundToolGroupKey(entry: {
+  toolId: string | null;
+  toolNameSnapshot: string | null;
+}): string {
+  if (entry.toolId) {
+    return `id:${entry.toolId}`;
+  }
+  const snap = entry.toolNameSnapshot?.trim();
+  if (snap) {
+    return `snap:${snap}`;
+  }
+  return '_none';
+}
+
+function resolveInboundMachineName(entry: {
+  tool?: { toolName: string } | null;
+  toolNameSnapshot: string | null;
+}): string {
+  const fromTool = entry.tool?.toolName?.trim();
+  if (fromTool) {
+    return fromTool;
+  }
+  const snap = entry.toolNameSnapshot?.trim();
+  if (snap) {
+    return snap;
+  }
+  return '—';
+}
+
+function inventoryRowKey(itemId: string, toolGroup: string): string {
+  return `${itemId}::${toolGroup}`;
+}
+
 function monthWindow(periodMonth: string): { start: Date; end: Date } {
   const [y, m] = periodMonth.split('-').map(Number);
   if (!y || !m || m < 1 || m > 12) {
@@ -17,6 +64,35 @@ function monthWindow(periodMonth: string): { start: Date; end: Date } {
   const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
   const end = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
   return { start, end };
+}
+
+function inboundDateRangeWindow(inboundStart: string, inboundEnd: string): { start: Date; end: Date } {
+  const startParts = inboundStart.split('-').map(Number);
+  const endParts = inboundEnd.split('-').map(Number);
+  if (startParts.length !== 3 || endParts.length !== 3) {
+    throw new BadRequestException('입고일자는 YYYY-MM-DD 형식이어야 합니다.');
+  }
+  const [ys, ms, ds] = startParts;
+  const [ye, me, de] = endParts;
+  const start = new Date(Date.UTC(ys, ms - 1, ds, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(ye, me - 1, de + 1, 0, 0, 0, 0));
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+    throw new BadRequestException('입고종료일자는 입고시작일자 이후여야 합니다.');
+  }
+  return { start, end };
+}
+
+function asOfDateExclusiveEnd(asOfDate: string): Date {
+  const parts = asOfDate.split('-').map(Number);
+  if (parts.length !== 3) {
+    throw new BadRequestException('기준일은 YYYY-MM-DD 형식이어야 합니다.');
+  }
+  const [y, m, d] = parts;
+  const end = new Date(Date.UTC(y, m - 1, d + 1, 0, 0, 0, 0));
+  if (Number.isNaN(end.getTime())) {
+    throw new BadRequestException('기준일은 YYYY-MM-DD 형식이어야 합니다.');
+  }
+  return end;
 }
 
 function currentPeriodMonth(): string {
@@ -107,8 +183,8 @@ export class SparePartsService {
     });
   }
 
-  async listInventory(periodMonth: string, q?: string): Promise<SparePartInventoryRow[]> {
-    const { start, end } = monthWindow(periodMonth);
+  async listInventoryAsOf(asOfDate: string, q?: string): Promise<SparePartInventoryRow[]> {
+    const end = asOfDateExclusiveEnd(asOfDate);
     const term = q?.trim().toLowerCase();
 
     const items = await this.prisma.sparePartItem.findMany({
@@ -124,7 +200,97 @@ export class SparePartsService {
             }
           : {}),
       },
-      include: { master: true },
+      include: { master: { include: { tool: true } } },
+      orderBy: [{ master: { sortOrder: 'asc' } }, { master: { partCode: 'asc' } }],
+    });
+
+    if (items.length === 0) {
+      return [];
+    }
+
+    const itemIds = items.map((i) => i.id);
+    const entries = await this.prisma.sparePartLedgerEntry.findMany({
+      where: {
+        itemId: { in: itemIds },
+        occurredAt: { lt: end },
+      },
+    });
+
+    const agg = new Map<
+      string,
+      { inbound: Prisma.Decimal; outbound: Prisma.Decimal; lastInbound: Date | null }
+    >();
+    for (const item of items) {
+      agg.set(item.id, {
+        inbound: new Prisma.Decimal(0),
+        outbound: new Prisma.Decimal(0),
+        lastInbound: null,
+      });
+    }
+
+    for (const e of entries) {
+      const row = agg.get(e.itemId);
+      if (!row) {
+        continue;
+      }
+      if (e.type === SparePartLedgerEntryType.INBOUND) {
+        row.inbound = row.inbound.add(e.qty);
+        if (!row.lastInbound || e.occurredAt > row.lastInbound) {
+          row.lastInbound = e.occurredAt;
+        }
+      } else {
+        row.outbound = row.outbound.add(e.qty);
+      }
+    }
+
+    return items.map((item) => {
+      const master = item.master!;
+      const a = agg.get(item.id)!;
+      const stock = a.inbound.sub(a.outbound);
+      return {
+        id: item.id,
+        masterId: item.masterId,
+        partCode: master.partCode,
+        machineName: resolveMachineName(master, item.machineBrand),
+        productName: master.productName,
+        spec: master.spec ?? item.spec,
+        unit: master.unit,
+        optimalQty: decStr(master.optimalQty),
+        inboundQtyInMonth: decStr(a.inbound),
+        outboundQtyInMonth: decStr(a.outbound),
+        currentQty: decStr(stock),
+        lastInboundDateInMonth: a.lastInbound ? a.lastInbound.toISOString().slice(0, 10) : null,
+        remarks: item.remarks ?? master.remarks,
+      };
+    });
+  }
+
+  async listInventory(
+    periodMonth: string | undefined,
+    q?: string,
+    inboundRange?: { inboundStart: string; inboundEnd: string },
+  ): Promise<SparePartInventoryRow[]> {
+    if (inboundRange) {
+      return this.listInventoryByInboundTool(inboundRange, q);
+    }
+
+    const { start, end } = monthWindow(this.resolveMonth(periodMonth));
+    const term = q?.trim().toLowerCase();
+
+    const items = await this.prisma.sparePartItem.findMany({
+      where: {
+        masterId: { not: null },
+        ...(term
+          ? {
+              OR: [
+                { productName: { contains: term, mode: 'insensitive' } },
+                { master: { partCode: { contains: term, mode: 'insensitive' } } },
+                { master: { productName: { contains: term, mode: 'insensitive' } } },
+              ],
+            }
+          : {}),
+      },
+      include: { master: { include: { tool: true } } },
       orderBy: [{ master: { sortOrder: 'asc' } }, { master: { partCode: 'asc' } }],
     });
 
@@ -174,6 +340,7 @@ export class SparePartsService {
         id: item.id,
         masterId: item.masterId,
         partCode: master.partCode,
+        machineName: resolveMachineName(master, item.machineBrand),
         productName: master.productName,
         spec: master.spec ?? item.spec,
         unit: master.unit,
@@ -185,6 +352,177 @@ export class SparePartsService {
         remarks: item.remarks ?? master.remarks,
       };
     });
+  }
+
+  /**
+   * 부품 입출고 대장: 입고 이력의 사출기(설비)별로 행 분리
+   */
+  async listInventoryByInboundTool(
+    inboundRange: { inboundStart: string; inboundEnd: string },
+    q?: string,
+  ): Promise<SparePartInventoryRow[]> {
+    const { start, end } = inboundDateRangeWindow(inboundRange.inboundStart, inboundRange.inboundEnd);
+    const term = q?.trim().toLowerCase();
+
+    const items = await this.prisma.sparePartItem.findMany({
+      where: {
+        masterId: { not: null },
+        ...(term
+          ? {
+              OR: [
+                { productName: { contains: term, mode: 'insensitive' } },
+                { master: { partCode: { contains: term, mode: 'insensitive' } } },
+                { master: { productName: { contains: term, mode: 'insensitive' } } },
+                { master: { machineBrand: { contains: term, mode: 'insensitive' } } },
+                { master: { tool: { toolName: { contains: term, mode: 'insensitive' } } } },
+              ],
+            }
+          : {}),
+      },
+      include: { master: { include: { tool: true } } },
+    });
+
+    if (items.length === 0) {
+      return [];
+    }
+
+    const itemById = new Map(items.map((i) => [i.id, i]));
+    const itemIds = items.map((i) => i.id);
+    const entries = await this.prisma.sparePartLedgerEntry.findMany({
+      where: {
+        itemId: { in: itemIds },
+        occurredAt: { gte: start, lt: end },
+      },
+      include: { tool: true },
+    });
+
+    type AggRow = {
+      itemId: string;
+      toolGroup: string;
+      machineName: string;
+      inbound: Prisma.Decimal;
+      outbound: Prisma.Decimal;
+      lastInbound: Date | null;
+    };
+
+    const agg = new Map<string, AggRow>();
+    const itemOutbound = new Map<string, Prisma.Decimal>();
+
+    const ensureAgg = (
+      itemId: string,
+      toolGroup: string,
+      machineName: string,
+    ): AggRow => {
+      const key = inventoryRowKey(itemId, toolGroup);
+      let row = agg.get(key);
+      if (!row) {
+        row = {
+          itemId,
+          toolGroup,
+          machineName,
+          inbound: new Prisma.Decimal(0),
+          outbound: new Prisma.Decimal(0),
+          lastInbound: null,
+        };
+        agg.set(key, row);
+      } else if (row.machineName === '—' && machineName !== '—') {
+        row.machineName = machineName;
+      }
+      return row;
+    };
+
+    for (const e of entries) {
+      if (e.type === SparePartLedgerEntryType.INBOUND) {
+        const toolGroup = inboundToolGroupKey(e);
+        const machineName = resolveInboundMachineName(e);
+        const row = ensureAgg(e.itemId, toolGroup, machineName);
+        row.inbound = row.inbound.add(e.qty);
+        if (!row.lastInbound || e.occurredAt > row.lastInbound) {
+          row.lastInbound = e.occurredAt;
+        }
+      } else {
+        itemOutbound.set(
+          e.itemId,
+          (itemOutbound.get(e.itemId) ?? new Prisma.Decimal(0)).add(e.qty),
+        );
+      }
+    }
+
+    for (const [itemId, outboundTotal] of itemOutbound) {
+      let rowsForItem = [...agg.values()].filter((r) => r.itemId === itemId);
+      if (rowsForItem.length === 0) {
+        ensureAgg(itemId, '_none', '—');
+        rowsForItem = [...agg.values()].filter((r) => r.itemId === itemId);
+      }
+      if (rowsForItem.length === 1) {
+        rowsForItem[0].outbound = outboundTotal;
+        continue;
+      }
+      let target = rowsForItem[0];
+      for (const r of rowsForItem) {
+        if (r.inbound.gt(target.inbound)) {
+          target = r;
+        }
+      }
+      for (const r of rowsForItem) {
+        r.outbound = r === target ? outboundTotal : new Prisma.Decimal(0);
+      }
+    }
+
+    const result: SparePartInventoryRow[] = [];
+    for (const row of agg.values()) {
+      const hasActivity = row.inbound.gt(0) || row.outbound.gt(0);
+      if (!hasActivity) {
+        continue;
+      }
+      const item = itemById.get(row.itemId);
+      if (!item?.master) {
+        continue;
+      }
+      const master = item.master;
+      if (term) {
+        const machineLower = row.machineName.toLowerCase();
+        const matchesMachine = machineLower.includes(term);
+        const matchesItem =
+          item.productName.toLowerCase().includes(term) ||
+          master.partCode.toLowerCase().includes(term) ||
+          master.productName.toLowerCase().includes(term) ||
+          master.machineBrand.toLowerCase().includes(term) ||
+          (master.tool?.toolName?.toLowerCase().includes(term) ?? false);
+        if (!matchesMachine && !matchesItem) {
+          continue;
+        }
+      }
+      result.push({
+        id: inventoryRowKey(row.itemId, row.toolGroup),
+        masterId: item.masterId,
+        partCode: master.partCode,
+        machineName: row.machineName,
+        productName: master.productName,
+        spec: master.spec ?? item.spec,
+        unit: master.unit,
+        optimalQty: decStr(master.optimalQty),
+        inboundQtyInMonth: decStr(row.inbound),
+        outboundQtyInMonth: decStr(row.outbound),
+        currentQty: decStr(item.currentQty),
+        lastInboundDateInMonth: row.lastInbound ? row.lastInbound.toISOString().slice(0, 10) : null,
+        remarks: item.remarks ?? master.remarks,
+      });
+    }
+
+    result.sort((a, b) => {
+      const code = (a.partCode ?? '').localeCompare(b.partCode ?? '', 'ko');
+      if (code !== 0) {
+        return code;
+      }
+      const machine = a.machineName.localeCompare(b.machineName, 'ko');
+      if (machine !== 0) {
+        return machine;
+      }
+      return a.productName.localeCompare(b.productName, 'ko');
+    });
+
+    return result;
   }
 
   async createItem(dto: CreateSparePartItemDto) {
@@ -249,12 +587,12 @@ export class SparePartsService {
     }
   }
 
-  private async listEntriesByType(
-    periodMonth: string,
+  private async listEntriesByTypeInRange(
+    start: Date,
+    end: Date,
     type: SparePartLedgerEntryType,
     q?: string,
   ): Promise<SparePartLedgerEntryRow[]> {
-    const { start, end } = monthWindow(periodMonth);
     const term = q?.trim();
     const entries = await this.prisma.sparePartLedgerEntry.findMany({
       where: {
@@ -273,23 +611,40 @@ export class SparePartsService {
           : {}),
       },
       include: {
-        item: { include: { master: true } },
+        item: { include: { master: { include: { tool: true } } } },
+        tool: true,
       },
       orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
     });
 
-    return entries.map((e) => ({
-      id: e.id,
-      itemId: e.itemId,
-      partCode: e.item.master?.partCode ?? null,
-      machineBrand: e.item.machineBrand,
-      productName: e.item.productName,
-      spec: e.item.spec,
-      unit: e.item.master?.unit ?? null,
-      qty: decStr(e.qty),
-      occurredAt: e.occurredAt.toISOString(),
-      note: e.note,
-    }));
+    return entries.map((e) => {
+      const toolName =
+        e.tool?.toolName ?? e.toolNameSnapshot ?? e.item.master?.tool?.toolName ?? null;
+      const machineBrand = toolName ?? e.item.machineBrand;
+      return {
+        id: e.id,
+        itemId: e.itemId,
+        partCode: e.item.master?.partCode ?? null,
+        toolId: e.toolId,
+        toolName,
+        machineBrand,
+        productName: e.item.productName,
+        spec: e.item.spec,
+        unit: e.item.master?.unit ?? null,
+        qty: decStr(e.qty),
+        occurredAt: e.occurredAt.toISOString(),
+        note: e.note,
+      };
+    });
+  }
+
+  private listEntriesByType(
+    periodMonth: string,
+    type: SparePartLedgerEntryType,
+    q?: string,
+  ): Promise<SparePartLedgerEntryRow[]> {
+    const { start, end } = monthWindow(periodMonth);
+    return this.listEntriesByTypeInRange(start, end, type, q);
   }
 
   listInboundEntries(periodMonth: string, q?: string): Promise<SparePartLedgerEntryRow[]> {
@@ -298,6 +653,24 @@ export class SparePartsService {
 
   listOutboundEntries(periodMonth: string, q?: string): Promise<SparePartLedgerEntryRow[]> {
     return this.listEntriesByType(periodMonth, SparePartLedgerEntryType.OUTBOUND, q);
+  }
+
+  listInboundEntriesByDateRange(
+    inboundStart: string,
+    inboundEnd: string,
+    q?: string,
+  ): Promise<SparePartLedgerEntryRow[]> {
+    const { start, end } = inboundDateRangeWindow(inboundStart, inboundEnd);
+    return this.listEntriesByTypeInRange(start, end, SparePartLedgerEntryType.INBOUND, q);
+  }
+
+  listOutboundEntriesByDateRange(
+    inboundStart: string,
+    inboundEnd: string,
+    q?: string,
+  ): Promise<SparePartLedgerEntryRow[]> {
+    const { start, end } = inboundDateRangeWindow(inboundStart, inboundEnd);
+    return this.listEntriesByTypeInRange(start, end, SparePartLedgerEntryType.OUTBOUND, q);
   }
 
   async ensureItemForMaster(masterId: string) {
@@ -320,14 +693,38 @@ export class SparePartsService {
     return { currentQty: item ? decStr(item.currentQty) : '0' };
   }
 
+  private async resolveInboundTool(
+    toolId: string | null | undefined,
+    masterId?: string,
+  ): Promise<{ toolId: string | null; toolNameSnapshot: string | null }> {
+    let resolvedToolId = toolId ?? null;
+    if (!resolvedToolId && masterId) {
+      const master = await this.prisma.sparePartMaster.findUnique({
+        where: { id: masterId },
+        select: { toolId: true },
+      });
+      resolvedToolId = master?.toolId ?? null;
+    }
+    if (!resolvedToolId) {
+      return { toolId: null, toolNameSnapshot: null };
+    }
+    const tool = await this.prisma.tool.findUnique({ where: { id: resolvedToolId } });
+    if (!tool) {
+      throw new BadRequestException('설비정보를 찾을 수 없습니다.');
+    }
+    return { toolId: tool.id, toolNameSnapshot: tool.toolName };
+  }
+
   async postInboundByMaster(
     masterId: string,
     qty: number,
     occurredAt: string,
     note: string | null | undefined,
+    toolId?: string | null,
   ) {
     const item = await this.ensureItemForMaster(masterId);
-    await this.postInbound(item.id, qty, occurredAt, note);
+    const toolSnap = await this.resolveInboundTool(toolId, masterId);
+    await this.postInbound(item.id, qty, occurredAt, note, toolSnap.toolId, toolSnap.toolNameSnapshot);
     return { ok: true as const };
   }
 
@@ -342,10 +739,27 @@ export class SparePartsService {
     return { ok: true as const };
   }
 
-  async postInbound(itemId: string, qty: number, occurredAt: string, note: string | null | undefined) {
+  async postInbound(
+    itemId: string,
+    qty: number,
+    occurredAt: string,
+    note: string | null | undefined,
+    toolId?: string | null,
+    toolNameSnapshot?: string | null,
+  ) {
     const at = new Date(occurredAt);
     if (Number.isNaN(at.getTime())) {
       throw new BadRequestException('occurredAt이 올바른 날짜가 아닙니다.');
+    }
+    let resolvedToolId = toolId ?? null;
+    let resolvedSnapshot = toolNameSnapshot ?? null;
+    if (toolId && !resolvedSnapshot) {
+      const tool = await this.prisma.tool.findUnique({ where: { id: toolId } });
+      if (!tool) {
+        throw new BadRequestException('설비정보를 찾을 수 없습니다.');
+      }
+      resolvedToolId = tool.id;
+      resolvedSnapshot = tool.toolName;
     }
     const q = new Prisma.Decimal(qty);
     await this.prisma.$transaction(async (tx) => {
@@ -360,6 +774,8 @@ export class SparePartsService {
           qty: q,
           occurredAt: at,
           note: note ?? null,
+          toolId: resolvedToolId,
+          toolNameSnapshot: resolvedSnapshot,
         },
       });
       await tx.sparePartItem.update({

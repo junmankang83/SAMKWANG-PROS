@@ -1,5 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { CreateSparePartItemDto, LedgerEntriesQueryDto, LedgerEntryBodyDto, LedgerPeriodQueryDto, SparePartItemsQueryDto, UpdateSparePartItemDto, UpsertLedgerPeriodBodyDto } from './dto/spare-parts.dto';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  CreateSparePartItemDto,
+  InventoryQueryDto,
+  LedgerEntriesQueryDto,
+  LedgerEntryBodyDto,
+  LedgerPeriodQueryDto,
+  SparePartItemsQueryDto,
+  UpdateSparePartItemDto,
+  UpsertLedgerPeriodBodyDto,
+} from './dto/spare-parts.dto';
 import { SparePartsService } from './spare-parts.service';
 
 @Controller('spare-parts')
@@ -13,19 +22,51 @@ export class SparePartsController {
   }
 
   @Get('inventory')
-  listInventory(@Query() query: LedgerEntriesQueryDto) {
+  listInventory(@Query() query: InventoryQueryDto) {
+    if (query.asOfDate) {
+      return this.spareParts.listInventoryAsOf(query.asOfDate, query.q);
+    }
+    if (query.inboundStart || query.inboundEnd) {
+      if (!query.inboundStart || !query.inboundEnd) {
+        throw new BadRequestException('입고시작일자와 입고종료일자를 모두 입력해 주세요.');
+      }
+      return this.spareParts.listInventory(undefined, query.q, {
+        inboundStart: query.inboundStart,
+        inboundEnd: query.inboundEnd,
+      });
+    }
     const month = this.spareParts.resolveMonth(query.month);
     return this.spareParts.listInventory(month, query.q);
   }
 
   @Get('inbound-entries')
   listInboundEntries(@Query() query: LedgerEntriesQueryDto) {
+    if (query.inboundStart || query.inboundEnd) {
+      if (!query.inboundStart || !query.inboundEnd) {
+        throw new BadRequestException('시작일자와 종료일자를 모두 입력해 주세요.');
+      }
+      return this.spareParts.listInboundEntriesByDateRange(
+        query.inboundStart,
+        query.inboundEnd,
+        query.q,
+      );
+    }
     const month = this.spareParts.resolveMonth(query.month);
     return this.spareParts.listInboundEntries(month, query.q);
   }
 
   @Get('outbound-entries')
   listOutboundEntries(@Query() query: LedgerEntriesQueryDto) {
+    if (query.inboundStart || query.inboundEnd) {
+      if (!query.inboundStart || !query.inboundEnd) {
+        throw new BadRequestException('시작일자와 종료일자를 모두 입력해 주세요.');
+      }
+      return this.spareParts.listOutboundEntriesByDateRange(
+        query.inboundStart,
+        query.inboundEnd,
+        query.q,
+      );
+    }
     const month = this.spareParts.resolveMonth(query.month);
     return this.spareParts.listOutboundEntries(month, query.q);
   }
@@ -47,7 +88,13 @@ export class SparePartsController {
 
   @Post('masters/:masterId/inbound')
   inboundByMaster(@Param('masterId') masterId: string, @Body() dto: LedgerEntryBodyDto) {
-    return this.spareParts.postInboundByMaster(masterId, dto.qty, dto.occurredAt, dto.note);
+    return this.spareParts.postInboundByMaster(
+      masterId,
+      dto.qty,
+      dto.occurredAt,
+      dto.note,
+      dto.toolId,
+    );
   }
 
   @Post('masters/:masterId/outbound')
@@ -57,7 +104,7 @@ export class SparePartsController {
 
   @Post('items/:id/inbound')
   inbound(@Param('id') id: string, @Body() dto: LedgerEntryBodyDto) {
-    return this.spareParts.postInbound(id, dto.qty, dto.occurredAt, dto.note);
+    return this.spareParts.postInbound(id, dto.qty, dto.occurredAt, dto.note, dto.toolId);
   }
 
   @Post('items/:id/outbound')

@@ -43,6 +43,10 @@ export class CreateSparePartMasterDto {
   @MaxLength(100)
   machineBrand?: string;
 
+  @IsOptional()
+  @IsString()
+  toolId?: string | null;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -95,6 +99,15 @@ export class CreateSparePartMasterDto {
 }
 
 export class UpdateSparePartMasterDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  machineBrand?: string;
+
+  @IsOptional()
+  @IsString()
+  toolId?: string | null;
+
   @IsOptional()
   @IsString()
   @IsNotEmpty()

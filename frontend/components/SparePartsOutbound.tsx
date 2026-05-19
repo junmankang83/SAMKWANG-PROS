@@ -21,9 +21,14 @@ import {
 import { MasterPartSearchSelect } from '@/components/MasterPartSearchSelect';
 import { useCallback, useEffect, useState } from 'react';
 
-function defaultMonth(): string {
+function defaultPeriodStart(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function defaultPeriodEnd(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function toIsoFromLocalDatetime(value: string): string | null {
@@ -86,7 +91,8 @@ const emptyForm = () => ({
 });
 
 export function SparePartsOutbound() {
-  const [month, setMonth] = useState(defaultMonth);
+  const [periodStart, setPeriodStart] = useState(defaultPeriodStart);
+  const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd);
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<SparePartLedgerEntryRow[]>([]);
   const [masters, setMasters] = useState<SparePartMasterRow[]>([]);
@@ -98,7 +104,10 @@ export function SparePartsOutbound() {
 
   const reload = useCallback(async () => {
     setLoadError(null);
-    const params = new URLSearchParams({ month });
+    const params = new URLSearchParams({
+      inboundStart: periodStart,
+      inboundEnd: periodEnd,
+    });
     if (search.trim()) {
       params.set('q', search.trim());
     }
@@ -114,7 +123,7 @@ export function SparePartsOutbound() {
       return;
     }
     setRows((await res.json()) as SparePartLedgerEntryRow[]);
-  }, [month, search]);
+  }, [periodStart, periodEnd, search]);
 
   const loadMasters = useCallback(async () => {
     const res = await fetch('/api/master-data/spare-parts?activeOnly=true', {
@@ -206,8 +215,19 @@ export function SparePartsOutbound() {
           <p className="mt-1 text-sm text-app-muted">부품별 출고 수량과 일시를 등록·조회합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <FormField label="기준월">
-            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          <FormField label="출고시작일자">
+            <Input
+              type="date"
+              value={periodStart}
+              onChange={(e) => setPeriodStart(e.target.value)}
+            />
+          </FormField>
+          <FormField label="출고종료일자">
+            <Input
+              type="date"
+              value={periodEnd}
+              onChange={(e) => setPeriodEnd(e.target.value)}
+            />
           </FormField>
           <FormField label="검색">
             <Input
@@ -232,16 +252,16 @@ export function SparePartsOutbound() {
       <Card className="shadow-card">
         <CardContent className="p-0 pt-4">
           <div className="overflow-x-auto">
-            <table className="pros-data-table text-app-text">
+            <table className="pros-data-table pros-data-table-head-center pros-ledger-table text-app-text">
               <colgroup>
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
-                <col style={{ width: '12.5%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '14%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -249,12 +269,8 @@ export function SparePartsOutbound() {
                   <th scope="col">사출기</th>
                   <th scope="col">제품명</th>
                   <th scope="col">규격</th>
-                  <th scope="col" className="pros-cell-center">
-                    단위
-                  </th>
-                  <th scope="col" className="pros-cell-num">
-                    출고수량
-                  </th>
+                  <th scope="col">단위</th>
+                  <th scope="col">출고수량</th>
                   <th scope="col">출고일시</th>
                   <th scope="col">비고</th>
                 </tr>
@@ -269,16 +285,19 @@ export function SparePartsOutbound() {
                 ) : (
                   rows.map((row) => (
                     <tr key={row.id}>
-                      <td className="font-mono text-xs">{row.partCode ?? '—'}</td>
-                      <td>{row.machineBrand}</td>
-                      <td className="font-medium">{row.productName}</td>
-                      <td className="text-app-muted">{row.spec ?? '—'}</td>
+                      <td className="pros-cell-center font-mono text-xs">{row.partCode ?? '—'}</td>
+                      <td className="pros-cell-center">{row.machineBrand}</td>
+                      <td className="pros-cell-center font-medium">{row.productName}</td>
+                      <td className="pros-cell-center text-app-muted">{row.spec ?? '—'}</td>
                       <td className="pros-cell-center">{row.unit ?? '—'}</td>
-                      <td className="pros-cell-num">{formatQtyDisplay(row.qty)}</td>
-                      <td className="font-mono text-xs text-app-muted">
+                      <td className="pros-cell-center tabular-nums">{formatQtyDisplay(row.qty)}</td>
+                      <td className="pros-cell-center font-mono text-xs text-app-muted">
                         {formatOccurredAt(row.occurredAt)}
                       </td>
-                      <td className="max-w-[140px] truncate text-app-muted" title={row.note ?? ''}>
+                      <td
+                        className="pros-cell-center truncate text-app-muted"
+                        title={row.note ?? ''}
+                      >
                         {row.note ?? '—'}
                       </td>
                     </tr>

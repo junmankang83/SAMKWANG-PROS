@@ -18,6 +18,7 @@ export const APP_DOMAINS: AppDomainMenu[] = [
     basePath: '/app/master-data',
     items: [
       { label: '사용자 관리', href: '/app/master-data/users' },
+      { label: '설비정보관리', href: '/app/master-data/tools' },
       { label: '부품정보관리', href: '/app/master-data/spare-parts' },
     ],
   },
@@ -28,6 +29,7 @@ export const APP_DOMAINS: AppDomainMenu[] = [
     items: [
       { label: '부품입고', href: '/app/production/inbound' },
       { label: '부품출고', href: '/app/production/outbound' },
+      { label: '부품 입출고 대장', href: '/app/production/ledger' },
       { label: '재고현황', href: '/app/production/inventory' },
     ],
   },

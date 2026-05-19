@@ -1,10 +1,11 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { SparePartMasterRow } from '@samkwang/shared';
+import type { SparePartMasterRow, ToolSummary } from '@samkwang/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CreateSparePartMasterDto,
@@ -15,10 +16,29 @@ function decStr(v: Prisma.Decimal): string {
   return v.toString();
 }
 
+function toToolSummary(tool: {
+  id: string;
+  toolSeq: number;
+  toolName: string;
+  toolNo: string;
+} | null): ToolSummary | null {
+  if (!tool) {
+    return null;
+  }
+  return {
+    id: tool.id,
+    toolSeq: tool.toolSeq,
+    toolName: tool.toolName,
+    toolNo: tool.toolNo,
+  };
+}
+
 function toRow(record: {
   id: string;
   partCode: string;
   machineBrand: string;
+  toolId: string | null;
+  tool: { id: string; toolSeq: number; toolName: string; toolNo: string } | null;
   productName: string;
   spec: string | null;
   unit: string;
@@ -38,6 +58,8 @@ function toRow(record: {
     id: record.id,
     partCode: record.partCode,
     machineBrand: record.machineBrand,
+    toolId: record.toolId,
+    tool: toToolSummary(record.tool),
     productName: record.productName,
     spec: record.spec,
     unit: record.unit,
@@ -55,9 +77,32 @@ function toRow(record: {
   };
 }
 
+const toolInclude = {
+  tool: {
+    select: { id: true, toolSeq: true, toolName: true, toolNo: true },
+  },
+} as const;
+
 @Injectable()
 export class SparePartMasterService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async resolveMachineBrand(
+    toolId: string | null | undefined,
+    machineBrand?: string,
+  ): Promise<{ toolId: string | null; machineBrand: string }> {
+    if (toolId) {
+      const tool = await this.prisma.tool.findUnique({ where: { id: toolId } });
+      if (!tool) {
+        throw new BadRequestException('설비정보를 찾을 수 없습니다.');
+      }
+      if (!tool.isActive) {
+        throw new BadRequestException('비활성화된 설비정보는 사용할 수 없습니다.');
+      }
+      return { toolId: tool.id, machineBrand: tool.toolName };
+    }
+    return { toolId: null, machineBrand: machineBrand?.trim() ?? '' };
+  }
 
   async list(q?: string, activeOnly = true): Promise<SparePartMasterRow[]> {
     const where: Prisma.SparePartMasterWhereInput = {};
@@ -74,13 +119,17 @@ export class SparePartMasterService {
     }
     const rows = await this.prisma.sparePartMaster.findMany({
       where,
+      include: toolInclude,
       orderBy: [{ sortOrder: 'asc' }, { partCode: 'asc' }],
     });
     return rows.map(toRow);
   }
 
   async getById(id: string): Promise<SparePartMasterRow> {
-    const row = await this.prisma.sparePartMaster.findUnique({ where: { id } });
+    const row = await this.prisma.sparePartMaster.findUnique({
+      where: { id },
+      include: toolInclude,
+    });
     if (!row) {
       throw new NotFoundException('기초정보를 찾을 수 없습니다.');
     }
@@ -89,11 +138,13 @@ export class SparePartMasterService {
 
   async create(dto: CreateSparePartMasterDto, username?: string): Promise<SparePartMasterRow> {
     const partCode = dto.partCode.trim().toUpperCase();
+    const { toolId, machineBrand } = await this.resolveMachineBrand(dto.toolId, dto.machineBrand);
     try {
       const row = await this.prisma.sparePartMaster.create({
         data: {
           partCode,
-          machineBrand: dto.machineBrand?.trim() ?? '',
+          machineBrand,
+          toolId,
           productName: dto.productName.trim(),
           spec: dto.spec?.trim() || null,
           unit: dto.unit?.trim() || 'EA',
@@ -107,6 +158,7 @@ export class SparePartMasterService {
           createdBy: username ?? null,
           updatedBy: username ?? null,
         },
+        include: toolInclude,
       });
       return toRow(row);
     } catch (e) {
@@ -122,10 +174,23 @@ export class SparePartMasterService {
     dto: UpdateSparePartMasterDto,
     username?: string,
   ): Promise<SparePartMasterRow> {
+    let toolIdUpdate: string | null | undefined;
+    let machineBrandUpdate: string | undefined;
+
+    if (dto.toolId !== undefined) {
+      const resolved = await this.resolveMachineBrand(dto.toolId, dto.machineBrand);
+      toolIdUpdate = resolved.toolId;
+      machineBrandUpdate = resolved.machineBrand;
+    } else if (dto.machineBrand !== undefined) {
+      machineBrandUpdate = dto.machineBrand.trim();
+    }
+
     try {
       const row = await this.prisma.sparePartMaster.update({
         where: { id },
         data: {
+          ...(toolIdUpdate !== undefined && { toolId: toolIdUpdate }),
+          ...(machineBrandUpdate !== undefined && { machineBrand: machineBrandUpdate }),
           ...(dto.productName !== undefined && { productName: dto.productName.trim() }),
           ...(dto.spec !== undefined && { spec: dto.spec?.trim() || null }),
           ...(dto.unit !== undefined && { unit: dto.unit.trim() }),
@@ -144,6 +209,7 @@ export class SparePartMasterService {
           ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
           updatedBy: username ?? null,
         },
+        include: toolInclude,
       });
       return toRow(row);
     } catch (e) {

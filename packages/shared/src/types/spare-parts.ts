@@ -24,6 +24,8 @@ export interface SparePartInventoryRow {
   id: string;
   masterId: string | null;
   partCode: string | null;
+  /** 사출기(입고 이력의 설비명·스냅샷, 대장 조회 시 설비별 행 분리) */
+  machineName: string;
   productName: string;
   spec: string | null;
   unit: string | null;
@@ -56,6 +58,7 @@ export interface SparePartLedgerPostRequest {
   qty: number;
   occurredAt: string;
   note?: string | null;
+  toolId?: string | null;
 }
 
 /** 입·출고 개별 이력 행 */
@@ -63,6 +66,8 @@ export interface SparePartLedgerEntryRow {
   id: string;
   itemId: string;
   partCode: string | null;
+  toolId: string | null;
+  toolName: string | null;
   machineBrand: string;
   productName: string;
   spec: string | null;

@@ -1,6 +1,6 @@
 'use client';
 
-import type { SparePartMasterRow } from '@samkwang/shared';
+import type { SparePartMasterRow, ToolRow } from '@samkwang/shared';
 import {
   Alert,
   AlertDescription,
@@ -28,6 +28,7 @@ import {
   rowSequenceNo,
   slicePage,
 } from '@/components/ProsListPagination';
+import { ToolSearchSelect } from '@/components/ToolSearchSelect';
 
 async function readApiError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
@@ -43,6 +44,7 @@ async function readApiError(res: Response): Promise<string> {
 
 const emptyForm = () => ({
   partCode: '',
+  toolId: '',
   productName: '',
   spec: '',
   unit: 'EA',
@@ -58,6 +60,7 @@ const emptyForm = () => ({
 function rowToForm(row: SparePartMasterRow) {
   return {
     partCode: row.partCode,
+    toolId: row.toolId ?? '',
     productName: row.productName,
     spec: row.spec ?? '',
     unit: row.unit,
@@ -67,7 +70,7 @@ function rowToForm(row: SparePartMasterRow) {
     leadTimeDays: row.leadTimeDays != null ? String(row.leadTimeDays) : '',
     remarks: row.remarks ?? '',
     sortOrder: String(row.sortOrder),
-    isActive: row.isActive ? 'Y' : 'N',
+    isActive: (row.isActive ? 'Y' : 'N') as 'Y' | 'N',
   };
 }
 
@@ -82,6 +85,7 @@ export function SparePartMasterRegistry() {
 
   const [editTarget, setEditTarget] = useState<SparePartMasterRow | null>(null);
   const [editForm, setEditForm] = useState(emptyForm);
+  const [tools, setTools] = useState<ToolRow[]>([]);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE_OPTIONS[0]);
@@ -125,6 +129,21 @@ export function SparePartMasterRegistry() {
     void reload();
   }, [reload]);
 
+  const loadTools = useCallback(async () => {
+    const res = await fetch('/api/master-data/tools?activeOnly=true', {
+      credentials: 'include',
+    });
+    if (res.ok) {
+      setTools((await res.json()) as ToolRow[]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (addOpen || editTarget != null) {
+      void loadTools();
+    }
+  }, [addOpen, editTarget, loadTools]);
+
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -136,6 +155,7 @@ export function SparePartMasterRegistry() {
         credentials: 'include',
         body: JSON.stringify({
           partCode: addForm.partCode.trim().toUpperCase(),
+          toolId: addForm.toolId || null,
           productName: addForm.productName,
           spec: addForm.spec || null,
           unit: addForm.unit || 'EA',
@@ -177,6 +197,7 @@ export function SparePartMasterRegistry() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
+          toolId: editForm.toolId || null,
           productName: editForm.productName,
           spec: editForm.spec || null,
           unit: editForm.unit || 'EA',
@@ -247,6 +268,13 @@ export function SparePartMasterRegistry() {
           placeholder="SP-LS-001"
           value={form.partCode}
           onChange={(e) => setForm((f) => ({ ...f, partCode: e.target.value.toUpperCase() }))}
+        />
+      </FormField>
+      <FormField label="사출기(설비)">
+        <ToolSearchSelect
+          tools={tools}
+          value={form.toolId}
+          onChange={(toolId) => setForm((f) => ({ ...f, toolId }))}
         />
       </FormField>
       <FormField label="제품명" required>
@@ -367,15 +395,16 @@ export function SparePartMasterRegistry() {
           <div className="overflow-x-auto">
             <table className="pros-data-table pros-data-table-head-center text-app-text">
               <colgroup>
-                <col style={{ width: '6%' }} />
-                <col style={{ width: '12%' }} />
-                <col style={{ width: '20%' }} />
+                <col style={{ width: '5%' }} />
+                <col style={{ width: '8%' }} />
                 <col style={{ width: '14%' }} />
-                <col style={{ width: '7%' }} />
-                <col style={{ width: '9%' }} />
-                <col style={{ width: '10%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
                 <col style={{ width: '6%' }} />
-                <col style={{ width: '16%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '9%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -384,6 +413,9 @@ export function SparePartMasterRegistry() {
                   </th>
                   <th scope="col" className="pros-cell-center">
                     부품코드
+                  </th>
+                  <th scope="col" className="pros-cell-center">
+                    사출기
                   </th>
                   <th scope="col" className="pros-cell-center">
                     제품명
@@ -411,7 +443,7 @@ export function SparePartMasterRegistry() {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="pros-table-empty">
+                    <td colSpan={10} className="pros-table-empty">
                       등록된 부품정보가 없습니다.
                     </td>
                   </tr>
@@ -420,6 +452,9 @@ export function SparePartMasterRegistry() {
                     <tr key={row.id} className={!row.isActive ? 'opacity-50' : undefined}>
                       <td className="pros-cell-seq">{rowSequenceNo(currentPage, pageSize, idx)}</td>
                       <td className="pros-cell-center font-mono text-xs">{row.partCode}</td>
+                      <td className="pros-cell-center text-app-muted">
+                        {(row.tool?.toolName ?? row.machineBrand) || '—'}
+                      </td>
                       <td className="pros-cell-center font-medium">{row.productName}</td>
                       <td className="pros-cell-center text-app-muted">{row.spec ?? '—'}</td>
                       <td className="pros-cell-center">{row.unit}</td>

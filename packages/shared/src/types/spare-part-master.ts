@@ -1,7 +1,11 @@
+import type { ToolSummary } from './tool';
+
 export interface SparePartMasterRow {
   id: string;
   partCode: string;
   machineBrand: string;
+  toolId: string | null;
+  tool: ToolSummary | null;
   productName: string;
   spec: string | null;
   unit: string;
@@ -20,7 +24,8 @@ export interface SparePartMasterRow {
 
 export interface SparePartMasterCreateRequest {
   partCode: string;
-  machineBrand: string;
+  machineBrand?: string;
+  toolId?: string | null;
   productName: string;
   spec?: string | null;
   unit?: string;
@@ -35,6 +40,7 @@ export interface SparePartMasterCreateRequest {
 
 export interface SparePartMasterUpdateRequest {
   machineBrand?: string;
+  toolId?: string | null;
   productName?: string;
   spec?: string | null;
   unit?: string;

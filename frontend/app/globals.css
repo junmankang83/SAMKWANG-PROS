@@ -34,6 +34,19 @@ html, body {
   text-align: center;
 }
 
+/* 부품입고·출고·입출고대장·재고현황 — 헤더·본문 가운데 정렬, 수량 열 포함 */
+.pros-data-table.pros-ledger-table thead th,
+.pros-data-table.pros-ledger-table tbody td {
+  text-align: center;
+}
+
+.pros-data-table.pros-ledger-table th.pros-cell-num,
+.pros-data-table.pros-ledger-table td.pros-cell-num,
+.pros-data-table.pros-ledger-table th.pros-cell-center,
+.pros-data-table.pros-ledger-table td.pros-cell-center {
+  text-align: center;
+}
+
 .pros-data-table tbody td {
   padding: 0.875rem 1rem;
   text-align: left;
@@ -67,6 +80,14 @@ html, body {
 .pros-data-table td.pros-cell-actions {
   text-align: center;
   white-space: nowrap;
+}
+
+.pros-data-table tbody td.pros-cell-actions {
+  background-color: #fff;
+}
+
+.pros-data-table tbody tr:hover td.pros-cell-actions {
+  background-color: #fff;
 }
 
 .pros-data-table td.pros-table-empty {
@@ -126,4 +147,67 @@ html, body {
   color: var(--brand, #2563eb);
   border-color: var(--app-border);
   background: var(--app-surface-02, #fff);
+}
+
+/* 사출기 예비 부품 입출고 관리대장 — 제목·결재란 동일 높이 */
+.pros-ledger-report-approval-block {
+  height: 5.75rem;
+}
+
+.pros-ledger-report-approval-block .pros-ledger-report-approval-label {
+  height: 1.75rem;
+  box-sizing: border-box;
+}
+
+.pros-ledger-report-approval-block .pros-ledger-report-approval-cell {
+  height: 4rem;
+  box-sizing: border-box;
+}
+
+.pros-ledger-report-title {
+  width: 100%;
+  height: 5.75rem;
+  box-sizing: border-box;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .pros-ledger-report-overlay,
+  .pros-ledger-report-overlay * {
+    visibility: visible;
+  }
+
+  .pros-ledger-report-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 9999;
+    overflow: visible;
+    background: #fff;
+  }
+
+  .pros-ledger-report-toolbar {
+    display: none !important;
+  }
+
+  .pros-ledger-report-scroll {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .pros-ledger-report {
+    max-width: none !important;
+    padding: 0.5cm;
+  }
+
+  .pros-ledger-report-table {
+    page-break-inside: auto;
+  }
+
+  .pros-ledger-report-table tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
 }

@@ -24,11 +24,47 @@ model User {
   updatedAt    DateTime @updatedAt
 }
 
+/// 설비정보 (기준정보)
+model Tool {
+  id             String    @id @default(cuid())
+  toolSeq        Int       @unique
+  toolName       String    @db.VarChar(50)
+  toolNo         String    @db.VarChar(30)
+  spec           String?   @db.VarChar(60)
+  smStatus       Int?
+  smStatusNm     String?   @db.VarChar(200)
+  umToolKind     Int?
+  umToolKindName String?   @db.VarChar(40)
+  assetSeq       Int?
+  asstName       String?   @db.VarChar(100)
+  asstNo         String?   @db.VarChar(30)
+  deptSeq        Int?
+  deptName       String?   @db.VarChar(200)
+  empSeq         Int?
+  empName        String?   @db.VarChar(200)
+  empid          String?   @db.VarChar(40)
+  lastUserName   String?   @db.VarChar(200)
+  lastDateTime   DateTime?
+  isActive       Boolean   @default(true)
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  sparePartMasters SparePartMaster[]
+  ledgerEntries    SparePartLedgerEntry[]
+
+  @@index([isActive, sortOrder])
+  @@index([umToolKind])
+  @@index([toolName])
+}
+
 /// 사출기 예비부품 기초정보 (기준정보)
 model SparePartMaster {
   id              String   @id @default(cuid())
   partCode        String   @unique @db.VarChar(50)
   machineBrand    String   @db.VarChar(100)
+  toolId          String?
+  tool            Tool?    @relation(fields: [toolId], references: [id], onDelete: SetNull)
   productName     String   @db.VarChar(200)
   spec            String?  @db.VarChar(200)
   unit            String   @default("EA") @db.VarChar(20)
@@ -48,6 +84,7 @@ model SparePartMaster {
 
   @@index([machineBrand, productName])
   @@index([isActive, sortOrder])
+  @@index([toolId])
 }
 
 /// 사출기 예비부품 입출고 행
@@ -72,16 +109,20 @@ model SparePartItem {
 
 /// 입출고 이력
 model SparePartLedgerEntry {
-  id         String                    @id @default(cuid())
-  itemId     String
-  item       SparePartItem             @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  type       SparePartLedgerEntryType
-  qty        Decimal                   @db.Decimal(14, 4)
-  occurredAt DateTime
-  note       String?
-  createdAt  DateTime                  @default(now())
+  id               String                    @id @default(cuid())
+  itemId           String
+  item             SparePartItem             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  toolId           String?
+  tool             Tool?                     @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  toolNameSnapshot String?                   @db.VarChar(50)
+  type             SparePartLedgerEntryType
+  qty              Decimal                   @db.Decimal(14, 4)
+  occurredAt       DateTime
+  note             String?
+  createdAt        DateTime                  @default(now())
 
   @@index([itemId, occurredAt])
+  @@index([toolId])
 }
 
 /// 월별 관리대장 결재 기록 (YYYY-MM 단위)

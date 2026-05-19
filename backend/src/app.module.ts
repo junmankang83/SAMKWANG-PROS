@@ -7,16 +7,19 @@ import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 import { MasterDataModule } from './master-data/master-data.module';
 import { SparePartsModule } from './spare-parts/spare-parts.module';
+import { ErpModule } from './external/erp/erp.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
+      envFilePath: ['.env', '../.env'],
     }),
     PrismaModule,
     AuthModule,
     HealthModule,
+    ErpModule,
     MasterDataModule,
     SparePartsModule,
   ],
