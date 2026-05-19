@@ -50,8 +50,8 @@ export function LoginForm() {
     <>
     <Card className="shadow-card">
       <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl tracking-tight">SAMKWANG-Plus</CardTitle>
-        <CardDescription>ERP번외관리시스템 로그인</CardDescription>
+        <CardTitle className="text-2xl tracking-tight">SAMKWANG-PROS</CardTitle>
+        <CardDescription>생산관리시스템 로그인</CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
