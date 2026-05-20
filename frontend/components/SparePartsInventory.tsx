@@ -61,7 +61,7 @@ type SparePartsInventoryProps = {
   title?: string;
   description?: string;
   emptyMessage?: string;
-  /** 입고시작일자~입고종료일자 (부품 입출고 대장) */
+  /** 시작일자~종료일자 (부품 입출고 대장) */
   filterMode?: 'month' | 'inboundDateRange' | 'asOfDate';
 };
 
@@ -137,14 +137,14 @@ export function SparePartsInventory({
             </FormField>
           ) : filterMode === 'inboundDateRange' ? (
             <>
-              <FormField label="입고시작일자">
+              <FormField label="시작일자">
                 <Input
                   type="date"
                   value={inboundStart}
                   onChange={(e) => setInboundStart(e.target.value)}
                 />
               </FormField>
-              <FormField label="입고종료일자">
+              <FormField label="종료일자">
                 <Input
                   type="date"
                   value={inboundEnd}
