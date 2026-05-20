@@ -1,11 +1,12 @@
 import { AppSidebar } from '@/components/AppSidebar';
 import { AppTopNav } from '@/components/AppTopNav';
 import { getServerSession } from '@/lib/auth/session';
+import { redirect } from 'next/navigation';
 
 export default async function AppShellLayout({ children }: { children: React.ReactNode }) {
   const user = await getServerSession();
   if (!user) {
-    return null;
+    redirect('/login');
   }
 
   return (

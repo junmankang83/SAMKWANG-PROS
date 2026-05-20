@@ -81,13 +81,17 @@ export function SparePartsInventory({
   const [showReport, setShowReport] = useState(false);
 
   const showInboundDateColumn = filterMode !== 'asOfDate';
+  const showOutboundDateColumn = filterMode === 'inboundDateRange';
 
   const inboundDateColumnLabel =
     filterMode === 'inboundDateRange'
-      ? '입고일자(기간내)'
+      ? '입고일자'
       : filterMode === 'asOfDate'
         ? '입고일자(최근)'
         : '입고일자(월내)';
+
+  const tableColCount =
+    9 + (showInboundDateColumn ? 1 : 0) + (showOutboundDateColumn ? 1 : 0);
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -193,16 +197,17 @@ export function SparePartsInventory({
           <div className="overflow-x-auto">
             <table className="pros-data-table pros-data-table-head-center pros-ledger-table text-app-text">
               <colgroup>
-                <col style={{ width: showInboundDateColumn ? '9%' : '10%' }} />
-                <col style={{ width: showInboundDateColumn ? '11%' : '12%' }} />
-                <col style={{ width: showInboundDateColumn ? '12%' : '14%' }} />
-                <col style={{ width: showInboundDateColumn ? '10%' : '11%' }} />
-                <col style={{ width: showInboundDateColumn ? '6%' : '7%' }} />
-                {showInboundDateColumn ? <col style={{ width: '12%' }} /> : null}
-                <col style={{ width: showInboundDateColumn ? '9%' : '11%' }} />
-                <col style={{ width: showInboundDateColumn ? '9%' : '11%' }} />
+                <col style={{ width: showInboundDateColumn ? '8%' : '10%' }} />
                 <col style={{ width: showInboundDateColumn ? '10%' : '12%' }} />
-                <col style={{ width: showInboundDateColumn ? '10%' : '12%' }} />
+                <col style={{ width: showInboundDateColumn ? '11%' : '14%' }} />
+                <col style={{ width: showInboundDateColumn ? '9%' : '11%' }} />
+                <col style={{ width: showInboundDateColumn ? '5%' : '7%' }} />
+                {showInboundDateColumn ? <col style={{ width: '10%' }} /> : null}
+                <col style={{ width: showOutboundDateColumn ? '8%' : showInboundDateColumn ? '9%' : '11%' }} />
+                {showOutboundDateColumn ? <col style={{ width: '10%' }} /> : null}
+                <col style={{ width: showInboundDateColumn ? '8%' : '11%' }} />
+                <col style={{ width: showInboundDateColumn ? '9%' : '12%' }} />
+                <col style={{ width: showInboundDateColumn ? '9%' : '12%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -215,6 +220,7 @@ export function SparePartsInventory({
                     <th scope="col">{inboundDateColumnLabel}</th>
                   ) : null}
                   <th scope="col">입고수량</th>
+                  {showOutboundDateColumn ? <th scope="col">출고일자</th> : null}
                   <th scope="col">출고수량</th>
                   <th scope="col">현재재고</th>
                   <th scope="col">적정재고</th>
@@ -223,7 +229,7 @@ export function SparePartsInventory({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={showInboundDateColumn ? 10 : 9} className="pros-table-empty">
+                    <td colSpan={tableColCount} className="pros-table-empty">
                       {emptyMessage}
                     </td>
                   </tr>
@@ -245,6 +251,11 @@ export function SparePartsInventory({
                         <td className="pros-cell-center tabular-nums">
                           {formatQtyDisplay(row.inboundQtyInMonth)}
                         </td>
+                        {showOutboundDateColumn ? (
+                          <td className="pros-cell-center font-mono text-xs text-app-muted">
+                            {row.lastOutboundDateInMonth ?? '—'}
+                          </td>
+                        ) : null}
                         <td className="pros-cell-center tabular-nums">
                           {formatQtyDisplay(row.outboundQtyInMonth)}
                         </td>

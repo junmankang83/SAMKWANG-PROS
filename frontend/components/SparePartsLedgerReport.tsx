@@ -186,13 +186,14 @@ export function SparePartsLedgerReport({
           <table className="pros-ledger-report-table w-full border-collapse text-xs text-black">
             <colgroup>
               <col style={{ width: '12%' }} />
-              <col style={{ width: '16%' }} />
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
               <col style={{ width: '10%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '11%' }} />
               <col />
             </colgroup>
             <thead>
@@ -203,6 +204,7 @@ export function SparePartsLedgerReport({
                   '규격',
                   '입고일자',
                   '입고수량',
+                  '출고일자',
                   '출고수량',
                   '현재재고',
                   '적정재고',
@@ -220,7 +222,7 @@ export function SparePartsLedgerReport({
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="border border-black py-8 text-center text-app-muted">
+                  <td colSpan={10} className="border border-black py-8 text-center text-app-muted">
                     표시할 내역이 없습니다.
                   </td>
                 </tr>
@@ -241,6 +243,9 @@ export function SparePartsLedgerReport({
                     </td>
                     <td className="border border-black px-1 py-2 text-center align-middle tabular-nums">
                       {formatQtyWithUnit(row.inboundQtyInMonth, row.unit)}
+                    </td>
+                    <td className="border border-black px-1 py-2 text-center align-middle font-mono">
+                      {row.lastOutboundDateInMonth ?? '—'}
                     </td>
                     <td className="border border-black px-1 py-2 text-center align-middle tabular-nums">
                       {formatQtyWithUnit(row.outboundQtyInMonth, row.unit)}

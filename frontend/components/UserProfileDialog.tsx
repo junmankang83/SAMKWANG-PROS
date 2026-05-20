@@ -118,11 +118,12 @@ export function UserProfileDialog({ open, onOpenChange, user }: UserProfileDialo
 
   const displayName = user.name?.trim() || '—';
 
-  const profileRows = [
+  type ProfileRow = { label: string; value: string; emphasize?: boolean };
+  const profileRows: ProfileRow[] = [
     { label: '이름', value: displayName, emphasize: true },
     { label: '아이디', value: user.username },
     { label: '조직', value: user.organization?.trim() || '—' },
-  ] as const;
+  ];
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

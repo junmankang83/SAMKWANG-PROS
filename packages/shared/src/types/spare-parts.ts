@@ -34,6 +34,8 @@ export interface SparePartInventoryRow {
   outboundQtyInMonth: string;
   currentQty: string;
   lastInboundDateInMonth: string | null;
+  /** 기간·월 조회 내 마지막 출고일(입출고 대장 기간 조회 시 FIFO 행별로 설정) */
+  lastOutboundDateInMonth: string | null;
   remarks: string | null;
 }
 

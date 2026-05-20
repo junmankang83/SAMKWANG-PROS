@@ -52,10 +52,6 @@ function resolveInboundMachineName(entry: {
   return '—';
 }
 
-function inventoryRowKey(itemId: string, toolGroup: string): string {
-  return `${itemId}::${toolGroup}`;
-}
-
 function monthWindow(periodMonth: string): { start: Date; end: Date } {
   const [y, m] = periodMonth.split('-').map(Number);
   if (!y || !m || m < 1 || m > 12) {
@@ -179,6 +175,7 @@ function aggregateInventoryByMaster(rows: SparePartInventoryRow[]): SparePartInv
       outboundQtyInMonth: decStr(a.outbound),
       currentQty: decStr(a.stock),
       lastInboundDateInMonth: null,
+      lastOutboundDateInMonth: null,
       remarks: a.remarks,
     }));
 }
@@ -337,6 +334,7 @@ export class SparePartsService {
         outboundQtyInMonth: decStr(a.outbound),
         currentQty: decStr(stock),
         lastInboundDateInMonth: a.lastInbound ? a.lastInbound.toISOString().slice(0, 10) : null,
+        lastOutboundDateInMonth: null,
         remarks: item.remarks ?? master.remarks,
       };
     });
@@ -428,13 +426,14 @@ export class SparePartsService {
         outboundQtyInMonth: decStr(a.outbound),
         currentQty: decStr(item.currentQty),
         lastInboundDateInMonth: a.lastInbound ? a.lastInbound.toISOString().slice(0, 10) : null,
+        lastOutboundDateInMonth: null,
         remarks: item.remarks ?? master.remarks,
       };
     });
   }
 
   /**
-   * 부품 입출고 대장: 입고 이력의 사출기(설비)별로 행 분리
+   * 부품 입출고 대장: 입고 설비(사출기)별·기간 내 입출고를 FIFO로 매칭해 행 분리
    */
   async listInventoryByInboundTool(
     inboundRange: { inboundStart: string; inboundEnd: string },
@@ -473,94 +472,139 @@ export class SparePartsService {
         occurredAt: { gte: start, lt: end },
       },
       include: { tool: true },
+      orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }],
     });
 
-    type AggRow = {
+    type Lot = {
+      toolGroup: string;
+      machineName: string;
+      occurredAt: Date;
+      qtyRemaining: Prisma.Decimal;
+    };
+
+    type PinnedRow = {
       itemId: string;
       toolGroup: string;
       machineName: string;
-      inbound: Prisma.Decimal;
-      outbound: Prisma.Decimal;
-      lastInbound: Date | null;
+      inboundDate: string | null;
+      inboundQty: Prisma.Decimal;
+      outboundDate: string | null;
+      outboundQty: Prisma.Decimal;
     };
 
-    const agg = new Map<string, AggRow>();
-    const itemOutbound = new Map<string, Prisma.Decimal>();
-
-    const ensureAgg = (
-      itemId: string,
-      toolGroup: string,
-      machineName: string,
-    ): AggRow => {
-      const key = inventoryRowKey(itemId, toolGroup);
-      let row = agg.get(key);
-      if (!row) {
-        row = {
-          itemId,
-          toolGroup,
-          machineName,
-          inbound: new Prisma.Decimal(0),
-          outbound: new Prisma.Decimal(0),
-          lastInbound: null,
-        };
-        agg.set(key, row);
-      } else if (row.machineName === '—' && machineName !== '—') {
-        row.machineName = machineName;
-      }
-      return row;
-    };
+    const byItemInboundLots = new Map<string, Lot[]>();
+    const byItemOutboundEvts = new Map<string, { occurredAt: Date; qty: Prisma.Decimal }[]>();
 
     for (const e of entries) {
       if (e.type === SparePartLedgerEntryType.INBOUND) {
         const toolGroup = inboundToolGroupKey(e);
         const machineName = resolveInboundMachineName(e);
-        const row = ensureAgg(e.itemId, toolGroup, machineName);
-        row.inbound = row.inbound.add(e.qty);
-        if (!row.lastInbound || e.occurredAt > row.lastInbound) {
-          row.lastInbound = e.occurredAt;
-        }
+        const list = byItemInboundLots.get(e.itemId) ?? [];
+        list.push({
+          toolGroup,
+          machineName,
+          occurredAt: e.occurredAt,
+          qtyRemaining: new Prisma.Decimal(e.qty),
+        });
+        byItemInboundLots.set(e.itemId, list);
       } else {
-        itemOutbound.set(
-          e.itemId,
-          (itemOutbound.get(e.itemId) ?? new Prisma.Decimal(0)).add(e.qty),
-        );
+        const list = byItemOutboundEvts.get(e.itemId) ?? [];
+        list.push({
+          occurredAt: e.occurredAt,
+          qty: new Prisma.Decimal(e.qty),
+        });
+        byItemOutboundEvts.set(e.itemId, list);
       }
     }
 
-    for (const [itemId, outboundTotal] of itemOutbound) {
-      let rowsForItem = [...agg.values()].filter((r) => r.itemId === itemId);
-      if (rowsForItem.length === 0) {
-        ensureAgg(itemId, '_none', '—');
-        rowsForItem = [...agg.values()].filter((r) => r.itemId === itemId);
-      }
-      if (rowsForItem.length === 1) {
-        rowsForItem[0].outbound = outboundTotal;
-        continue;
-      }
-      let target = rowsForItem[0];
-      for (const r of rowsForItem) {
-        if (r.inbound.gt(target.inbound)) {
-          target = r;
+    const pinnedRows: PinnedRow[] = [];
+    const uniqueItemIds = [...new Set(itemIds)];
+
+    for (const itemId of uniqueItemIds) {
+      const lots = (byItemInboundLots.get(itemId) ?? []).map((l) => ({
+        toolGroup: l.toolGroup,
+        machineName: l.machineName,
+        occurredAt: l.occurredAt,
+        qtyRemaining: new Prisma.Decimal(l.qtyRemaining),
+      }));
+      const outs = byItemOutboundEvts.get(itemId) ?? [];
+
+      let lotIdx = 0;
+
+      const advanceLot = (): void => {
+        while (lotIdx < lots.length && !lots[lotIdx].qtyRemaining.gt(0)) {
+          lotIdx += 1;
+        }
+      };
+
+      for (const o of outs) {
+        let qRem = new Prisma.Decimal(o.qty);
+        const outDay = o.occurredAt.toISOString().slice(0, 10);
+        while (qRem.gt(0)) {
+          advanceLot();
+          if (lotIdx >= lots.length) {
+            pinnedRows.push({
+              itemId,
+              toolGroup: '_none',
+              machineName: '—',
+              inboundDate: null,
+              inboundQty: new Prisma.Decimal(0),
+              outboundDate: outDay,
+              outboundQty: new Prisma.Decimal(qRem),
+            });
+            qRem = new Prisma.Decimal(0);
+            break;
+          }
+          const lot = lots[lotIdx];
+          const take = lot.qtyRemaining.lt(qRem) ? new Prisma.Decimal(lot.qtyRemaining) : new Prisma.Decimal(qRem);
+          const inDay = lot.occurredAt.toISOString().slice(0, 10);
+          pinnedRows.push({
+            itemId,
+            toolGroup: lot.toolGroup,
+            machineName: lot.machineName,
+            inboundDate: inDay,
+            inboundQty: take,
+            outboundDate: outDay,
+            outboundQty: take,
+          });
+          lot.qtyRemaining = lot.qtyRemaining.minus(take);
+          qRem = qRem.minus(take);
         }
       }
-      for (const r of rowsForItem) {
-        r.outbound = r === target ? outboundTotal : new Prisma.Decimal(0);
+
+      for (let j = 0; j < lots.length; j++) {
+        const lot = lots[j];
+        if (!lot.qtyRemaining.gt(0)) {
+          continue;
+        }
+        const inDay = lot.occurredAt.toISOString().slice(0, 10);
+        pinnedRows.push({
+          itemId,
+          toolGroup: lot.toolGroup,
+          machineName: lot.machineName,
+          inboundDate: inDay,
+          inboundQty: new Prisma.Decimal(lot.qtyRemaining),
+          outboundDate: null,
+          outboundQty: new Prisma.Decimal(0),
+        });
       }
     }
 
     const result: SparePartInventoryRow[] = [];
-    for (const row of agg.values()) {
-      const hasActivity = row.inbound.gt(0) || row.outbound.gt(0);
-      if (!hasActivity) {
-        continue;
-      }
-      const item = itemById.get(row.itemId);
+    let rowSeq = 0;
+
+    for (const pr of pinnedRows) {
+      const item = itemById.get(pr.itemId);
       if (!item?.master) {
         continue;
       }
       const master = item.master;
+      const hasActivity = pr.inboundQty.gt(0) || pr.outboundQty.gt(0);
+      if (!hasActivity) {
+        continue;
+      }
       if (term) {
-        const machineLower = row.machineName.toLowerCase();
+        const machineLower = pr.machineName.toLowerCase();
         const matchesMachine = machineLower.includes(term);
         const matchesItem =
           item.productName.toLowerCase().includes(term) ||
@@ -573,18 +617,19 @@ export class SparePartsService {
         }
       }
       result.push({
-        id: inventoryRowKey(row.itemId, row.toolGroup),
+        id: `${pr.itemId}::${rowSeq++}`,
         masterId: item.masterId,
         partCode: master.partCode,
-        machineName: row.machineName,
+        machineName: pr.machineName,
         productName: master.productName,
         spec: master.spec ?? item.spec,
         unit: master.unit,
         optimalQty: decStr(master.optimalQty),
-        inboundQtyInMonth: decStr(row.inbound),
-        outboundQtyInMonth: decStr(row.outbound),
+        inboundQtyInMonth: decStr(pr.inboundQty),
+        outboundQtyInMonth: decStr(pr.outboundQty),
         currentQty: decStr(item.currentQty),
-        lastInboundDateInMonth: row.lastInbound ? row.lastInbound.toISOString().slice(0, 10) : null,
+        lastInboundDateInMonth: pr.inboundDate,
+        lastOutboundDateInMonth: pr.outboundDate,
         remarks: item.remarks ?? master.remarks,
       });
     }
@@ -598,7 +643,15 @@ export class SparePartsService {
       if (machine !== 0) {
         return machine;
       }
-      return a.productName.localeCompare(b.productName, 'ko');
+      const pn = a.productName.localeCompare(b.productName, 'ko');
+      if (pn !== 0) {
+        return pn;
+      }
+      const inD = (a.lastInboundDateInMonth ?? '').localeCompare(b.lastInboundDateInMonth ?? '', 'ko');
+      if (inD !== 0) {
+        return inD;
+      }
+      return (a.lastOutboundDateInMonth ?? '').localeCompare(b.lastOutboundDateInMonth ?? '', 'ko');
     });
 
     return result;
