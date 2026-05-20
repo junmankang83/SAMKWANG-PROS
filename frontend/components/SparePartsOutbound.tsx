@@ -118,6 +118,7 @@ export function SparePartsOutbound() {
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyForm);
+  const [addDialogError, setAddDialogError] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<SparePartLedgerEntryRow | null>(null);
   const [editForm, setEditForm] = useState({
     qty: '1',
@@ -181,6 +182,7 @@ export function SparePartsOutbound() {
     if (addOpen) {
       void loadMasters();
       setCurrentQty(null);
+      setAddDialogError(null);
     }
   }, [addOpen, loadMasters]);
 
@@ -192,13 +194,18 @@ export function SparePartsOutbound() {
 
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
+    setAddDialogError(null);
     if (!addForm.masterId) {
-      setLoadError('출고할 부품정보를 선택해 주세요.');
+      setAddDialogError('출고할 부품정보를 선택해 주세요.');
       return;
     }
     const qty = Number(addForm.qty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setAddDialogError('출고수량은 0보다 큰 값을 입력해 주세요.');
+      return;
+    }
     if (currentQty != null && qty > Number(currentQty)) {
-      setLoadError('출고 수량이 현재고를 초과합니다.');
+      setAddDialogError('출고수량이 현재고보다 클수 없습니다.');
       return;
     }
     setBusy(true);
@@ -224,6 +231,7 @@ export function SparePartsOutbound() {
       }
       setAddOpen(false);
       setAddForm(emptyForm());
+      setAddDialogError(null);
       await reload();
     } finally {
       setBusy(false);
@@ -434,6 +442,11 @@ export function SparePartsOutbound() {
               <DialogTitle>출고내역등록</DialogTitle>
             </DialogHeader>
             <DialogBody>
+              {addDialogError ? (
+                <p className="mb-3 text-sm text-error" role="alert">
+                  {addDialogError}
+                </p>
+              ) : null}
               <FormGrid fullWidth>
                 <FormField label="부품 선택" required>
                   <MasterPartSearchSelect
@@ -442,6 +455,7 @@ export function SparePartsOutbound() {
                     value={addForm.masterId}
                     onChange={(masterId) => {
                       setAddForm((f) => ({ ...f, masterId, qty: '1' }));
+                      setAddDialogError(null);
                     }}
                   />
                 </FormField>
@@ -459,11 +473,12 @@ export function SparePartsOutbound() {
                   <Input
                     type="number"
                     required
-                    min={0.0001}
                     step="any"
-                    max={currentQty != null ? Number(currentQty) : undefined}
                     value={addForm.qty}
-                    onChange={(e) => setAddForm((f) => ({ ...f, qty: e.target.value }))}
+                    onChange={(e) => {
+                      setAddForm((f) => ({ ...f, qty: e.target.value }));
+                      setAddDialogError(null);
+                    }}
                   />
                 </FormField>
                 <FormField label="출고일시" required>

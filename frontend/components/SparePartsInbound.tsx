@@ -121,6 +121,7 @@ export function SparePartsInbound() {
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyForm);
+  const [addDialogError, setAddDialogError] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<SparePartLedgerEntryRow | null>(null);
   const [editForm, setEditForm] = useState({
     qty: '1',
@@ -184,12 +185,21 @@ export function SparePartsInbound() {
       void loadMasters();
       void loadTools();
     }
+    if (addOpen) {
+      setAddDialogError(null);
+    }
   }, [addOpen, editTarget, loadMasters, loadTools]);
 
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
+    setAddDialogError(null);
     if (!addForm.masterId) {
-      setLoadError('입고할 부품정보를 선택해 주세요.');
+      setAddDialogError('입고할 부품정보를 선택해 주세요.');
+      return;
+    }
+    const qty = Number(addForm.qty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setAddDialogError('입고수량은 0보다 큰 값을 입력해 주세요.');
       return;
     }
     setBusy(true);
@@ -200,7 +210,7 @@ export function SparePartsInbound() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          qty: Number(addForm.qty),
+          qty,
           occurredAt: toIsoFromLocalDatetime(addForm.occurredAt),
           note: addForm.note || null,
           toolId: addForm.toolId || selectedMaster?.toolId || null,
@@ -216,6 +226,7 @@ export function SparePartsInbound() {
       }
       setAddOpen(false);
       setAddForm(emptyForm());
+      setAddDialogError(null);
       await reload();
     } finally {
       setBusy(false);
@@ -426,6 +437,11 @@ export function SparePartsInbound() {
               <DialogTitle>입고내역등록</DialogTitle>
             </DialogHeader>
             <DialogBody>
+              {addDialogError ? (
+                <p className="mb-3 text-sm text-error" role="alert">
+                  {addDialogError}
+                </p>
+              ) : null}
               <FormGrid fullWidth>
                 <FormField label="부품 선택" required>
                   <MasterPartSearchSelect
@@ -439,6 +455,7 @@ export function SparePartsInbound() {
                         masterId,
                         toolId: m?.toolId ?? '',
                       }));
+                      setAddDialogError(null);
                     }}
                   />
                 </FormField>
@@ -451,7 +468,10 @@ export function SparePartsInbound() {
                   <ToolSearchSelect
                     tools={tools}
                     value={addForm.toolId}
-                    onChange={(toolId) => setAddForm((f) => ({ ...f, toolId }))}
+                    onChange={(toolId) => {
+                      setAddForm((f) => ({ ...f, toolId }));
+                      setAddDialogError(null);
+                    }}
                     placeholder="설비코드·설비명·번호 검색"
                   />
                 </FormField>
@@ -464,10 +484,12 @@ export function SparePartsInbound() {
                   <Input
                     type="number"
                     required
-                    min={0.0001}
                     step="any"
                     value={addForm.qty}
-                    onChange={(e) => setAddForm((f) => ({ ...f, qty: e.target.value }))}
+                    onChange={(e) => {
+                      setAddForm((f) => ({ ...f, qty: e.target.value }));
+                      setAddDialogError(null);
+                    }}
                   />
                 </FormField>
                 <FormField label="입고일시" required>
@@ -475,13 +497,19 @@ export function SparePartsInbound() {
                     type="datetime-local"
                     required
                     value={addForm.occurredAt}
-                    onChange={(e) => setAddForm((f) => ({ ...f, occurredAt: e.target.value }))}
+                    onChange={(e) => {
+                      setAddForm((f) => ({ ...f, occurredAt: e.target.value }));
+                      setAddDialogError(null);
+                    }}
                   />
                 </FormField>
                 <FormField label="비고" fullWidth>
                   <Input
                     value={addForm.note}
-                    onChange={(e) => setAddForm((f) => ({ ...f, note: e.target.value }))}
+                    onChange={(e) => {
+                      setAddForm((f) => ({ ...f, note: e.target.value }));
+                      setAddDialogError(null);
+                    }}
                   />
                 </FormField>
               </FormGrid>
