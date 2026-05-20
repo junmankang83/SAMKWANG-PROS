@@ -67,7 +67,7 @@ type SparePartsInventoryProps = {
 
 export function SparePartsInventory({
   title = '재고현황',
-  description = '부품입고·부품출고 내역을 합산해 기준월 입·출고 수량과 현재 재고를 표시합니다.',
+  description = '부품입고·부품출고 내역을 합산해 입·출고 수량과 현재 재고를 표시합니다.',
   emptyMessage = '표시할 재고가 없습니다. 부품입고에서 입고를 등록하면 여기에 반영됩니다.',
   filterMode = 'month',
 }: SparePartsInventoryProps = {}) {
@@ -79,6 +79,8 @@ export function SparePartsInventory({
   const [rows, setRows] = useState<SparePartInventoryRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
+
+  const showInboundDateColumn = filterMode !== 'asOfDate';
 
   const inboundDateColumnLabel =
     filterMode === 'inboundDateRange'
@@ -191,16 +193,16 @@ export function SparePartsInventory({
           <div className="overflow-x-auto">
             <table className="pros-data-table pros-data-table-head-center pros-ledger-table text-app-text">
               <colgroup>
-                <col style={{ width: '9%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '12%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '6%' }} />
-                <col style={{ width: '12%' }} />
-                <col style={{ width: '9%' }} />
-                <col style={{ width: '9%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '10%' }} />
+                <col style={{ width: showInboundDateColumn ? '9%' : '10%' }} />
+                <col style={{ width: showInboundDateColumn ? '11%' : '12%' }} />
+                <col style={{ width: showInboundDateColumn ? '12%' : '14%' }} />
+                <col style={{ width: showInboundDateColumn ? '10%' : '11%' }} />
+                <col style={{ width: showInboundDateColumn ? '6%' : '7%' }} />
+                {showInboundDateColumn ? <col style={{ width: '12%' }} /> : null}
+                <col style={{ width: showInboundDateColumn ? '9%' : '11%' }} />
+                <col style={{ width: showInboundDateColumn ? '9%' : '11%' }} />
+                <col style={{ width: showInboundDateColumn ? '10%' : '12%' }} />
+                <col style={{ width: showInboundDateColumn ? '10%' : '12%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -209,7 +211,9 @@ export function SparePartsInventory({
                   <th scope="col">제품명</th>
                   <th scope="col">규격</th>
                   <th scope="col">단위</th>
-                  <th scope="col">{inboundDateColumnLabel}</th>
+                  {showInboundDateColumn ? (
+                    <th scope="col">{inboundDateColumnLabel}</th>
+                  ) : null}
                   <th scope="col">입고수량</th>
                   <th scope="col">출고수량</th>
                   <th scope="col">현재재고</th>
@@ -219,7 +223,7 @@ export function SparePartsInventory({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="pros-table-empty">
+                    <td colSpan={showInboundDateColumn ? 10 : 9} className="pros-table-empty">
                       {emptyMessage}
                     </td>
                   </tr>
@@ -233,9 +237,11 @@ export function SparePartsInventory({
                         <td className="pros-cell-center font-medium">{row.productName}</td>
                         <td className="pros-cell-center text-app-muted">{row.spec ?? '—'}</td>
                         <td className="pros-cell-center">{row.unit ?? '—'}</td>
-                        <td className="pros-cell-center font-mono text-xs text-app-muted">
-                          {row.lastInboundDateInMonth ?? '—'}
-                        </td>
+                        {showInboundDateColumn ? (
+                          <td className="pros-cell-center font-mono text-xs text-app-muted">
+                            {row.lastInboundDateInMonth ?? '—'}
+                          </td>
+                        ) : null}
                         <td className="pros-cell-center tabular-nums">
                           {formatQtyDisplay(row.inboundQtyInMonth)}
                         </td>

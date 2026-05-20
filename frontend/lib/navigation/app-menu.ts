@@ -35,7 +35,7 @@ export const APP_DOMAINS: AppDomainMenu[] = [
   },
   {
     id: 'mold',
-    label: '금형관리',
+    label: '설비관리',
     basePath: '/app/mold',
     items: [{ label: '준비 중', href: '/app/mold', disabled: true }],
   },

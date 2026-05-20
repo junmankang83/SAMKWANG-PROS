@@ -7,7 +7,7 @@ import type {
   SparePartLedgerPeriodResponse,
 } from '@samkwang/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import type { CreateSparePartItemDto, UpdateSparePartItemDto, UpsertLedgerPeriodBodyDto } from './dto/spare-parts.dto';
+import type { CreateSparePartItemDto, LedgerEntryBodyDto, UpdateSparePartItemDto, UpsertLedgerPeriodBodyDto } from './dto/spare-parts.dto';
 
 function resolveMachineName(
   master: { machineBrand: string; tool?: { toolName: string } | null } | null,
@@ -104,6 +104,83 @@ function currentPeriodMonth(): string {
 
 function decStr(v: Prisma.Decimal): string {
   return v.toString();
+}
+
+/** 재고현황: 동일 마스터(제품) 행 합산, 재고 0 제외 */
+function aggregateInventoryByMaster(rows: SparePartInventoryRow[]): SparePartInventoryRow[] {
+  type Acc = {
+    masterId: string;
+    partCode: string | null;
+    productName: string;
+    spec: string | null;
+    unit: string | null;
+    optimalQty: string;
+    inbound: Prisma.Decimal;
+    outbound: Prisma.Decimal;
+    stock: Prisma.Decimal;
+    machineName: string;
+    remarks: string | null;
+  };
+
+  const byMaster = new Map<string, Acc>();
+
+  for (const row of rows) {
+    if (!row.masterId) {
+      continue;
+    }
+    const inbound = new Prisma.Decimal(row.inboundQtyInMonth);
+    const outbound = new Prisma.Decimal(row.outboundQtyInMonth);
+    const stock = new Prisma.Decimal(row.currentQty);
+
+    let acc = byMaster.get(row.masterId);
+    if (!acc) {
+      byMaster.set(row.masterId, {
+        masterId: row.masterId,
+        partCode: row.partCode,
+        productName: row.productName,
+        spec: row.spec,
+        unit: row.unit,
+        optimalQty: row.optimalQty,
+        inbound,
+        outbound,
+        stock,
+        machineName: row.machineName,
+        remarks: row.remarks,
+      });
+      continue;
+    }
+
+    acc.inbound = acc.inbound.add(inbound);
+    acc.outbound = acc.outbound.add(outbound);
+    acc.stock = acc.stock.add(stock);
+
+    if (acc.machineName !== row.machineName) {
+      acc.machineName = '—';
+    }
+
+    if (!acc.remarks && row.remarks) {
+      acc.remarks = row.remarks;
+    }
+  }
+
+  return [...byMaster.values()]
+    .filter((a) => a.stock.gt(0))
+    .sort((a, b) => (a.partCode ?? '').localeCompare(b.partCode ?? '', 'ko'))
+    .map((a) => ({
+      id: a.masterId,
+      masterId: a.masterId,
+      partCode: a.partCode,
+      machineName: a.machineName,
+      productName: a.productName,
+      spec: a.spec,
+      unit: a.unit,
+      optimalQty: a.optimalQty,
+      inboundQtyInMonth: decStr(a.inbound),
+      outboundQtyInMonth: decStr(a.outbound),
+      currentQty: decStr(a.stock),
+      lastInboundDateInMonth: null,
+      remarks: a.remarks,
+    }));
 }
 
 function toIsoOrNull(d: Date | null): string | null {
@@ -243,7 +320,7 @@ export class SparePartsService {
       }
     }
 
-    return items.map((item) => {
+    const rows = items.map((item) => {
       const master = item.master!;
       const a = agg.get(item.id)!;
       const stock = a.inbound.sub(a.outbound);
@@ -263,6 +340,8 @@ export class SparePartsService {
         remarks: item.remarks ?? master.remarks,
       };
     });
+
+    return aggregateInventoryByMaster(rows);
   }
 
   async listInventory(
@@ -814,6 +893,87 @@ export class SparePartsService {
         data: { currentQty: next },
       });
     });
+  }
+
+  async updateLedgerEntry(entryId: string, dto: LedgerEntryBodyDto): Promise<{ ok: true }> {
+    const at = new Date(dto.occurredAt);
+    if (Number.isNaN(at.getTime())) {
+      throw new BadRequestException('occurredAt이 올바른 날짜가 아닙니다.');
+    }
+    const newQty = new Prisma.Decimal(dto.qty);
+
+    await this.prisma.$transaction(async (tx) => {
+      const entry = await tx.sparePartLedgerEntry.findUnique({
+        where: { id: entryId },
+        include: { item: true },
+      });
+      if (!entry) {
+        throw new NotFoundException('입출고 내역을 찾을 수 없습니다.');
+      }
+
+      const oldQty = entry.qty;
+      const delta = newQty.sub(oldQty);
+      const inc =
+        entry.type === SparePartLedgerEntryType.INBOUND ? delta : oldQty.sub(newQty);
+      const nextItemQty = entry.item.currentQty.add(inc);
+      if (nextItemQty.lt(0)) {
+        throw new BadRequestException('수정 후 재고가 음수가 됩니다. 수량을 줄이거나 출고 수량을 확인해 주세요.');
+      }
+
+      let toolId = entry.toolId;
+      let toolNameSnapshot = entry.toolNameSnapshot;
+      if (entry.type === SparePartLedgerEntryType.INBOUND && dto.toolId !== undefined) {
+        const snap = await this.resolveInboundTool(dto.toolId, entry.item.masterId ?? undefined);
+        toolId = snap.toolId;
+        toolNameSnapshot = snap.toolNameSnapshot;
+      }
+
+      await tx.sparePartLedgerEntry.update({
+        where: { id: entryId },
+        data: {
+          qty: newQty,
+          occurredAt: at,
+          note: dto.note ?? null,
+          ...(entry.type === SparePartLedgerEntryType.INBOUND && dto.toolId !== undefined
+            ? { toolId, toolNameSnapshot }
+            : {}),
+        },
+      });
+      await tx.sparePartItem.update({
+        where: { id: entry.itemId },
+        data: { currentQty: nextItemQty },
+      });
+    });
+
+    return { ok: true as const };
+  }
+
+  async deleteLedgerEntry(entryId: string): Promise<{ ok: true }> {
+    await this.prisma.$transaction(async (tx) => {
+      const entry = await tx.sparePartLedgerEntry.findUnique({
+        where: { id: entryId },
+        include: { item: true },
+      });
+      if (!entry) {
+        throw new NotFoundException('입출고 내역을 찾을 수 없습니다.');
+      }
+
+      const q = entry.qty;
+      const inc =
+        entry.type === SparePartLedgerEntryType.INBOUND ? q.negated() : q;
+      const nextItemQty = entry.item.currentQty.add(inc);
+      if (nextItemQty.lt(0)) {
+        throw new BadRequestException('삭제 후 재고가 음수가 됩니다.');
+      }
+
+      await tx.sparePartLedgerEntry.delete({ where: { id: entryId } });
+      await tx.sparePartItem.update({
+        where: { id: entry.itemId },
+        data: { currentQty: nextItemQty },
+      });
+    });
+
+    return { ok: true as const };
   }
 
   async getLedgerPeriod(periodMonth: string): Promise<SparePartLedgerPeriodResponse> {

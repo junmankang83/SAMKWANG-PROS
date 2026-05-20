@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   CreateSparePartItemDto,
   InventoryQueryDto,
@@ -110,6 +110,16 @@ export class SparePartsController {
   @Post('items/:id/outbound')
   outbound(@Param('id') id: string, @Body() dto: LedgerEntryBodyDto) {
     return this.spareParts.postOutbound(id, dto.qty, dto.occurredAt, dto.note);
+  }
+
+  @Patch('ledger-entries/:id')
+  patchLedgerEntry(@Param('id') id: string, @Body() dto: LedgerEntryBodyDto) {
+    return this.spareParts.updateLedgerEntry(id, dto);
+  }
+
+  @Delete('ledger-entries/:id')
+  deleteLedgerEntry(@Param('id') id: string) {
+    return this.spareParts.deleteLedgerEntry(id);
   }
 
   @Get('ledger-period')

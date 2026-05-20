@@ -43,6 +43,15 @@ function toIsoFromLocalDatetime(value: string): string | null {
   return d.toISOString();
 }
 
+function isoToDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return '';
+  }
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
 function formatQtyDisplay(s: string): string {
   const n = Number(s);
   if (!Number.isFinite(n)) {
@@ -92,6 +101,15 @@ const emptyForm = () => ({
   note: '',
 });
 
+function rowToEditForm(row: SparePartLedgerEntryRow) {
+  return {
+    qty: row.qty,
+    occurredAt: isoToDatetimeLocal(row.occurredAt),
+    note: row.note ?? '',
+    toolId: row.toolId ?? '',
+  };
+}
+
 export function SparePartsInbound() {
   const [periodStart, setPeriodStart] = useState(defaultPeriodStart);
   const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd);
@@ -103,6 +121,13 @@ export function SparePartsInbound() {
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyForm);
+  const [editTarget, setEditTarget] = useState<SparePartLedgerEntryRow | null>(null);
+  const [editForm, setEditForm] = useState({
+    qty: '1',
+    occurredAt: '',
+    note: '',
+    toolId: '',
+  });
 
   const selectedMaster = useMemo(
     () => masters.find((m) => m.id === addForm.masterId),
@@ -155,11 +180,11 @@ export function SparePartsInbound() {
   }, [reload]);
 
   useEffect(() => {
-    if (addOpen) {
+    if (addOpen || editTarget) {
       void loadMasters();
       void loadTools();
     }
-  }, [addOpen, loadMasters, loadTools]);
+  }, [addOpen, editTarget, loadMasters, loadTools]);
 
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -191,6 +216,69 @@ export function SparePartsInbound() {
       }
       setAddOpen(false);
       setAddForm(emptyForm());
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editTarget) {
+      return;
+    }
+    setBusy(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/spare-parts/ledger-entries/${editTarget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          qty: Number(editForm.qty),
+          occurredAt: toIsoFromLocalDatetime(editForm.occurredAt),
+          note: editForm.note || null,
+          toolId: editForm.toolId || null,
+        }),
+      });
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      if (!res.ok) {
+        setLoadError(await readApiError(res));
+        return;
+      }
+      setEditTarget(null);
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeEntry(row: SparePartLedgerEntryRow) {
+    if (
+      !confirm(
+        `입고 내역을 삭제할까요?\n${row.productName} · 수량 ${formatQtyDisplay(row.qty)}\n삭제 후에는 복구할 수 없습니다.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/spare-parts/ledger-entries/${row.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      if (!res.ok) {
+        setLoadError(await readApiError(res));
+        return;
+      }
       await reload();
     } finally {
       setBusy(false);
@@ -244,14 +332,15 @@ export function SparePartsInbound() {
           <div className="overflow-x-auto">
             <table className="pros-data-table pros-data-table-head-center pros-ledger-table text-app-text">
               <colgroup>
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '12%' }} />
-                <col style={{ width: '7%' }} />
                 <col style={{ width: '10%' }} />
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '11%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -263,12 +352,15 @@ export function SparePartsInbound() {
                   <th scope="col">입고수량</th>
                   <th scope="col">입고일시</th>
                   <th scope="col">비고</th>
+                  <th scope="col" className="pros-cell-actions">
+                    작업
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="pros-table-empty">
+                    <td colSpan={9} className="pros-table-empty">
                       등록된 입고 내역이 없습니다.
                     </td>
                   </tr>
@@ -289,6 +381,34 @@ export function SparePartsInbound() {
                         title={row.note ?? ''}
                       >
                         {row.note ?? '—'}
+                      </td>
+                      <td className="pros-cell-actions">
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0"
+                            disabled={busy}
+                            onClick={() => {
+                              setEditTarget(row);
+                              setEditForm(rowToEditForm(row));
+                              setLoadError(null);
+                            }}
+                          >
+                            수정
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-error"
+                            disabled={busy}
+                            onClick={() => void removeEntry(row)}
+                          >
+                            삭제
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -368,6 +488,72 @@ export function SparePartsInbound() {
             </DialogBody>
             <DialogFooter className="gap-2 sm:justify-end">
               <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>
+                취소
+              </Button>
+              <Button type="submit" variant="primary" disabled={busy} loading={busy}>
+                저장
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editTarget != null} onOpenChange={(o) => !o && setEditTarget(null)}>
+        <DialogContent size="default">
+          <form onSubmit={submitEdit}>
+            <DialogHeader>
+              <DialogTitle>입고내역 수정</DialogTitle>
+            </DialogHeader>
+            <DialogBody>
+              {editTarget ? (
+                <div className="mb-4 space-y-1 rounded-md border border-app-border bg-app-surface-02 p-3 text-sm">
+                  <p>
+                    <span className="text-app-muted">부품코드</span>{' '}
+                    <span className="font-mono font-medium">{editTarget.partCode ?? '—'}</span>
+                  </p>
+                  <p>
+                    <span className="text-app-muted">제품명</span>{' '}
+                    <span className="font-medium">{editTarget.productName}</span>
+                  </p>
+                </div>
+              ) : null}
+              <FormGrid fullWidth>
+                <FormField label="사출기">
+                  <ToolSearchSelect
+                    tools={tools}
+                    value={editForm.toolId}
+                    onChange={(toolId) => setEditForm((f) => ({ ...f, toolId }))}
+                    placeholder="설비코드·설비명·번호 검색"
+                  />
+                </FormField>
+                <FormField label="입고수량" required>
+                  <Input
+                    type="number"
+                    required
+                    min={0.0001}
+                    step="any"
+                    value={editForm.qty}
+                    onChange={(e) => setEditForm((f) => ({ ...f, qty: e.target.value }))}
+                  />
+                </FormField>
+                <FormField label="입고일시" required>
+                  <Input
+                    type="datetime-local"
+                    required
+                    value={editForm.occurredAt}
+                    onChange={(e) => setEditForm((f) => ({ ...f, occurredAt: e.target.value }))}
+                  />
+                </FormField>
+                <FormField label="비고" fullWidth>
+                  <Input
+                    value={editForm.note}
+                    onChange={(e) => setEditForm((f) => ({ ...f, note: e.target.value }))}
+                  />
+                </FormField>
+              </FormGrid>
+            </DialogBody>
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button type="button" variant="secondary" onClick={() => setEditTarget(null)}>
                 취소
               </Button>
               <Button type="submit" variant="primary" disabled={busy} loading={busy}>

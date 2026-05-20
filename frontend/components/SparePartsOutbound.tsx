@@ -42,6 +42,15 @@ function toIsoFromLocalDatetime(value: string): string | null {
   return d.toISOString();
 }
 
+function isoToDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return '';
+  }
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
 function formatQtyDisplay(s: string): string {
   const n = Number(s);
   if (!Number.isFinite(n)) {
@@ -90,6 +99,14 @@ const emptyForm = () => ({
   note: '',
 });
 
+function rowToEditForm(row: SparePartLedgerEntryRow) {
+  return {
+    qty: row.qty,
+    occurredAt: isoToDatetimeLocal(row.occurredAt),
+    note: row.note ?? '',
+  };
+}
+
 export function SparePartsOutbound() {
   const [periodStart, setPeriodStart] = useState(defaultPeriodStart);
   const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd);
@@ -101,6 +118,12 @@ export function SparePartsOutbound() {
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyForm);
+  const [editTarget, setEditTarget] = useState<SparePartLedgerEntryRow | null>(null);
+  const [editForm, setEditForm] = useState({
+    qty: '1',
+    occurredAt: '',
+    note: '',
+  });
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -207,6 +230,69 @@ export function SparePartsOutbound() {
     }
   }
 
+  async function submitEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editTarget) {
+      return;
+    }
+    const qty = Number(editForm.qty);
+    setBusy(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/spare-parts/ledger-entries/${editTarget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          qty,
+          occurredAt: toIsoFromLocalDatetime(editForm.occurredAt),
+          note: editForm.note || null,
+        }),
+      });
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      if (!res.ok) {
+        setLoadError(await readApiError(res));
+        return;
+      }
+      setEditTarget(null);
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeEntry(row: SparePartLedgerEntryRow) {
+    if (
+      !confirm(
+        `출고 내역을 삭제할까요?\n${row.productName} · 수량 ${formatQtyDisplay(row.qty)}\n삭제 후에는 복구할 수 없습니다.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/spare-parts/ledger-entries/${row.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      if (!res.ok) {
+        setLoadError(await readApiError(res));
+        return;
+      }
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -254,14 +340,15 @@ export function SparePartsOutbound() {
           <div className="overflow-x-auto">
             <table className="pros-data-table pros-data-table-head-center pros-ledger-table text-app-text">
               <colgroup>
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '12%' }} />
-                <col style={{ width: '7%' }} />
                 <col style={{ width: '10%' }} />
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '11%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -273,12 +360,15 @@ export function SparePartsOutbound() {
                   <th scope="col">출고수량</th>
                   <th scope="col">출고일시</th>
                   <th scope="col">비고</th>
+                  <th scope="col" className="pros-cell-actions">
+                    작업
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="pros-table-empty">
+                    <td colSpan={9} className="pros-table-empty">
                       등록된 출고 내역이 없습니다.
                     </td>
                   </tr>
@@ -299,6 +389,34 @@ export function SparePartsOutbound() {
                         title={row.note ?? ''}
                       >
                         {row.note ?? '—'}
+                      </td>
+                      <td className="pros-cell-actions">
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0"
+                            disabled={busy}
+                            onClick={() => {
+                              setEditTarget(row);
+                              setEditForm(rowToEditForm(row));
+                              setLoadError(null);
+                            }}
+                          >
+                            수정
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-error"
+                            disabled={busy}
+                            onClick={() => void removeEntry(row)}
+                          >
+                            삭제
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -366,6 +484,64 @@ export function SparePartsOutbound() {
             </DialogBody>
             <DialogFooter className="gap-2 sm:justify-end">
               <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>
+                취소
+              </Button>
+              <Button type="submit" variant="primary" disabled={busy} loading={busy}>
+                저장
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editTarget != null} onOpenChange={(o) => !o && setEditTarget(null)}>
+        <DialogContent size="default">
+          <form onSubmit={submitEdit}>
+            <DialogHeader>
+              <DialogTitle>출고내역 수정</DialogTitle>
+            </DialogHeader>
+            <DialogBody>
+              {editTarget ? (
+                <div className="mb-4 space-y-1 rounded-md border border-app-border bg-app-surface-02 p-3 text-sm">
+                  <p>
+                    <span className="text-app-muted">부품코드</span>{' '}
+                    <span className="font-mono font-medium">{editTarget.partCode ?? '—'}</span>
+                  </p>
+                  <p>
+                    <span className="text-app-muted">제품명</span>{' '}
+                    <span className="font-medium">{editTarget.productName}</span>
+                  </p>
+                </div>
+              ) : null}
+              <FormGrid fullWidth>
+                <FormField label="출고수량" required>
+                  <Input
+                    type="number"
+                    required
+                    min={0.0001}
+                    step="any"
+                    value={editForm.qty}
+                    onChange={(e) => setEditForm((f) => ({ ...f, qty: e.target.value }))}
+                  />
+                </FormField>
+                <FormField label="출고일시" required>
+                  <Input
+                    type="datetime-local"
+                    required
+                    value={editForm.occurredAt}
+                    onChange={(e) => setEditForm((f) => ({ ...f, occurredAt: e.target.value }))}
+                  />
+                </FormField>
+                <FormField label="비고" fullWidth>
+                  <Input
+                    value={editForm.note}
+                    onChange={(e) => setEditForm((f) => ({ ...f, note: e.target.value }))}
+                  />
+                </FormField>
+              </FormGrid>
+            </DialogBody>
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button type="button" variant="secondary" onClick={() => setEditTarget(null)}>
                 취소
               </Button>
               <Button type="submit" variant="primary" disabled={busy} loading={busy}>
