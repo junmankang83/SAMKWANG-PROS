@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Req, Res } from '@nestjs/common';
 import type { AuthLogoutResponse } from '@samkwang/shared';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { SESSION_COOKIE_NAME } from './auth.constants';
 import { AuthLoginDto } from './dto/auth-login.dto';
+import { AuthChangePasswordDto } from './dto/auth-change-password.dto';
 import { AuthRegisterDto } from './dto/auth-register.dto';
 
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -68,5 +69,14 @@ export class AuthController {
   @Get('me')
   async me(@Req() req: Request) {
     return this.authService.me(req.sessionUser);
+  }
+
+  @Patch('password')
+  changePassword(@Req() req: Request, @Body() body: AuthChangePasswordDto) {
+    return this.authService.changePassword(
+      req.sessionUser,
+      body.currentPassword,
+      body.newPassword,
+    );
   }
 }

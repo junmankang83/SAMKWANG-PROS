@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { UserRow } from '@samkwang/shared';
+import type { ErpUserRow, UserRow } from '@samkwang/shared';
 import * as bcrypt from 'bcryptjs';
+import { ErpUsersService } from '../external/erp/erp-users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateUserDto } from './dto/user.dto';
 
@@ -8,7 +9,10 @@ const BCRYPT_ROUNDS = 10;
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly erpUsers: ErpUsersService,
+  ) {}
 
   async list(): Promise<UserRow[]> {
     const rows = await this.prisma.user.findMany({
@@ -16,6 +20,7 @@ export class UsersService {
       select: {
         id: true,
         username: true,
+        name: true,
         organization: true,
         createdAt: true,
         updatedAt: true,
@@ -24,10 +29,20 @@ export class UsersService {
     return rows.map((u) => ({
       id: u.id,
       username: u.username,
+      name: u.name,
       organization: u.organization,
       createdAt: u.createdAt.toISOString(),
       updatedAt: u.updatedAt.toISOString(),
     }));
+  }
+
+  async listErpUsers(q?: string): Promise<ErpUserRow[]> {
+    const [erpRows, existing] = await Promise.all([
+      this.erpUsers.listUsers(q),
+      this.prisma.user.findMany({ select: { username: true } }),
+    ]);
+    const taken = new Set(existing.map((u) => u.username.toLowerCase()));
+    return erpRows.filter((row) => !taken.has(row.userId.toLowerCase()));
   }
 
   async create(dto: CreateUserDto): Promise<UserRow> {
@@ -42,12 +57,14 @@ export class UsersService {
     const user = await this.prisma.user.create({
       data: {
         username: normalized,
+        name: dto.name.trim(),
         passwordHash,
         organization: dto.organization.trim(),
       },
       select: {
         id: true,
         username: true,
+        name: true,
         organization: true,
         createdAt: true,
         updatedAt: true,
@@ -56,6 +73,7 @@ export class UsersService {
     return {
       id: user.id,
       username: user.username,
+      name: user.name,
       organization: user.organization,
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString(),

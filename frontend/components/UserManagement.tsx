@@ -1,6 +1,6 @@
 'use client';
 
-import type { UserRow } from '@samkwang/shared';
+import type { ErpUserRow, UserRow } from '@samkwang/shared';
 import {
   Alert,
   AlertDescription,
@@ -19,6 +19,7 @@ import {
   Input,
 } from '@samkwang/ui-kit';
 import { useCallback, useEffect, useState } from 'react';
+import { ErpUserPickDialog } from '@/components/ErpUserPickDialog';
 
 async function readApiError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
@@ -48,6 +49,7 @@ function formatDate(iso: string): string {
 
 const emptyForm = () => ({
   username: '',
+  name: '',
   password: '',
   organization: '',
 });
@@ -57,6 +59,7 @@ export function UserManagement() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [erpPickOpen, setErpPickOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyForm);
 
   const reload = useCallback(async () => {
@@ -88,6 +91,7 @@ export function UserManagement() {
         credentials: 'include',
         body: JSON.stringify({
           username: addForm.username.trim(),
+          name: addForm.name.trim(),
           password: addForm.password,
           organization: addForm.organization.trim(),
         }),
@@ -106,6 +110,17 @@ export function UserManagement() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function applyErpUser(row: ErpUserRow) {
+    const userId = row.userId.trim();
+    setAddForm((f) => ({
+      ...f,
+      username: userId,
+      name: row.userName.trim(),
+      password: userId,
+      organization: row.deptName?.trim() ?? '',
+    }));
   }
 
   async function removeRow(row: UserRow) {
@@ -157,14 +172,16 @@ export function UserManagement() {
           <div className="overflow-x-auto">
             <table className="pros-data-table text-app-text">
               <colgroup>
-                <col style={{ width: '25%' }} />
-                <col style={{ width: '35%' }} />
-                <col style={{ width: '25%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '28%' }} />
+                <col style={{ width: '23%' }} />
                 <col style={{ width: '15%' }} />
               </colgroup>
               <thead>
                 <tr>
                   <th scope="col">아이디</th>
+                  <th scope="col">이름</th>
                   <th scope="col">조직</th>
                   <th scope="col">등록일시</th>
                   <th scope="col" className="pros-cell-actions">
@@ -175,7 +192,7 @@ export function UserManagement() {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="pros-table-empty">
+                    <td colSpan={5} className="pros-table-empty">
                       등록된 사용자가 없습니다.
                     </td>
                   </tr>
@@ -183,6 +200,7 @@ export function UserManagement() {
                   rows.map((row) => (
                     <tr key={row.id}>
                       <td className="font-medium">{row.username}</td>
+                      <td>{row.name || '—'}</td>
                       <td className="text-app-muted">{row.organization}</td>
                       <td className="font-mono text-xs text-app-muted">{formatDate(row.createdAt)}</td>
                       <td className="pros-cell-actions">
@@ -208,8 +226,17 @@ export function UserManagement() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent size="default">
           <form onSubmit={submitAdd}>
-            <DialogHeader>
-              <DialogTitle>사용자 등록</DialogTitle>
+            <DialogHeader className="flex flex-row flex-wrap items-center gap-2 pr-10">
+              <DialogTitle className="flex-1 min-w-0">사용자 등록</DialogTitle>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setErpPickOpen(true)}
+              >
+                ERP 사용자 선택
+              </Button>
             </DialogHeader>
             <DialogBody>
               <FormGrid>
@@ -219,6 +246,14 @@ export function UserManagement() {
                     autoComplete="username"
                     value={addForm.username}
                     onChange={(e) => setAddForm((f) => ({ ...f, username: e.target.value }))}
+                  />
+                </FormField>
+                <FormField label="이름" required>
+                  <Input
+                    required
+                    autoComplete="name"
+                    value={addForm.name}
+                    onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
                   />
                 </FormField>
                 <FormField label="비밀번호" required>
@@ -251,6 +286,12 @@ export function UserManagement() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ErpUserPickDialog
+        open={erpPickOpen}
+        onOpenChange={setErpPickOpen}
+        onSelect={applyErpUser}
+      />
     </div>
   );
 }

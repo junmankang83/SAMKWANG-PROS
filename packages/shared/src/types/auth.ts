@@ -1,7 +1,17 @@
 export interface AuthUser {
   id: string;
   username: string;
+  name?: string;
   organization?: string;
+}
+
+export interface AuthChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface AuthChangePasswordResponse {
+  ok: boolean;
 }
 
 export interface AuthLoginRequest {

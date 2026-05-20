@@ -18,6 +18,7 @@ enum SparePartLedgerEntryType {
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
+  name         String   @default("")
   passwordHash String
   organization String
   createdAt    DateTime @default(now())

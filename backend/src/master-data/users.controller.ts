@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
-import { CreateUserDto } from './dto/user.dto';
+import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { CreateUserDto, ErpUserListQueryDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 
 @Controller('master-data/users')
@@ -9,6 +9,11 @@ export class UsersController {
   @Get()
   list() {
     return this.users.list();
+  }
+
+  @Get('erp')
+  listErp(@Query() query: ErpUserListQueryDto) {
+    return this.users.listErpUsers(query.q);
   }
 
   @Post()
