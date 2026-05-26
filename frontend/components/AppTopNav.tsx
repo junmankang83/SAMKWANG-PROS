@@ -2,6 +2,8 @@
 
 import type { AuthUser } from '@samkwang/shared';
 import { Button } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -9,7 +11,7 @@ import { UserProfileDialog } from '@/components/UserProfileDialog';
 import { APP_DOMAINS } from '@/lib/navigation/app-menu';
 
 const navLinkBase =
-  'inline-flex h-8 shrink-0 items-center justify-center rounded-md px-3 text-base font-medium transition-colors no-underline';
+  'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-base font-medium transition-colors no-underline';
 const navLinkIdle = `${navLinkBase} text-app-text hover:bg-app-hover`;
 const navLinkActive = `${navLinkBase} bg-brand text-app-text-on-color hover:bg-brand-hover`;
 
@@ -23,14 +25,7 @@ function UserAvatarIcon() {
       className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/12 text-brand"
       aria-hidden
     >
-      <svg
-        viewBox="0 0 24 24"
-        className="h-[18px] w-[18px]"
-        fill="currentColor"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-      </svg>
+      <Icon icon="mdi:account-circle" className="h-[18px] w-[18px]" />
     </span>
   );
 }
@@ -52,10 +47,22 @@ export function AppTopNav({ user }: AppTopNavProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b border-app-border bg-app-surface-02 px-4 shadow-topbar">
+      <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b border-app-border bg-app-surface-02 px-4 shadow-topbar print:hidden">
         <div className="flex min-w-0 flex-1 items-center gap-4">
-          <Link href="/app" className={`${navLinkIdle} shrink-0 font-semibold`}>
-            SAMKWANG-PROS
+          <Link
+            href="/app"
+            className={`${navLinkIdle} shrink-0 gap-2 font-semibold`}
+            aria-label="SAMKWANG-PROS 홈"
+          >
+            <Image
+              src="/samkwang-logo.png"
+              alt=""
+              width={120}
+              height={36}
+              className="h-7 w-auto max-h-7 shrink-0 object-contain"
+              priority
+            />
+            <span className="whitespace-nowrap">SAMKWANG-PROS</span>
           </Link>
           <nav
             className="flex min-w-0 flex-wrap items-center gap-1"
@@ -71,6 +78,13 @@ export function AppTopNav({ user }: AppTopNavProps) {
                   className={active ? navLinkActive : navLinkIdle}
                   aria-current={active ? 'page' : undefined}
                 >
+                  {d.icon ? (
+                    <Icon
+                      icon={d.icon}
+                      className={`h-[18px] w-[18px] shrink-0 ${active ? 'opacity-100' : 'opacity-80'}`}
+                      aria-hidden
+                    />
+                  ) : null}
                   {d.label}
                 </Link>
               );
@@ -99,7 +113,10 @@ export function AppTopNav({ user }: AppTopNavProps) {
             className="shrink-0 text-[14px]"
             onClick={() => void logout()}
           >
-            로그아웃
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:logout" className="h-4 w-4 shrink-0" aria-hidden />
+              로그아웃
+            </span>
           </Button>
         </div>
       </header>

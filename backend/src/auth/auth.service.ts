@@ -80,7 +80,7 @@ export class AuthService {
     }
     return {
       ok: true,
-      user: { id: 'demo', username: demoUser },
+      user: { id: 'demo', username: demoUser, name: demoUser, organization: '' },
     };
   }
 
@@ -110,7 +110,14 @@ export class AuthService {
       }
     }
 
-    return { user: { id: session.sub, username: session.username } };
+    return {
+      user: {
+        id: session.sub,
+        username: session.username,
+        name: session.username,
+        organization: '',
+      },
+    };
   }
 
   async changePassword(

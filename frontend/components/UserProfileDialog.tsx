@@ -16,6 +16,7 @@ import {
   FormGrid,
   Input,
 } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import { useState } from 'react';
 
 async function readApiError(res: Response): Promise<string> {
@@ -137,14 +138,7 @@ export function UserProfileDialog({ open, onOpenChange, user }: UserProfileDialo
               className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand/12 text-brand"
               aria-hidden
             >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-6 w-6"
-                fill="currentColor"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-              </svg>
+              <Icon icon="mdi:account-circle" className="h-7 w-7" />
             </span>
             <p className="text-lg font-semibold text-app-text">{displayName}</p>
           </div>
@@ -227,14 +221,20 @@ export function UserProfileDialog({ open, onOpenChange, user }: UserProfileDialo
                 </Alert>
               ) : null}
               <Button type="submit" variant="primary" disabled={busy} loading={busy}>
-                비밀번호 변경
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:key-variant" className="h-4 w-4 shrink-0" aria-hidden />
+                  비밀번호 변경
+                </span>
               </Button>
             </form>
           )}
         </DialogBody>
         <DialogFooter className="gap-2 sm:justify-end">
           <Button type="button" variant="secondary" onClick={() => handleOpenChange(false)}>
-            닫기
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+              닫기
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>

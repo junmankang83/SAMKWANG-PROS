@@ -8,6 +8,7 @@ import { SessionAuthGuard } from './auth/session-auth.guard';
 import { MasterDataModule } from './master-data/master-data.module';
 import { SparePartsModule } from './spare-parts/spare-parts.module';
 import { ErpModule } from './external/erp/erp.module';
+import { MoldModule } from './mold/mold.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ErpModule } from './external/erp/erp.module';
     ErpModule,
     MasterDataModule,
     SparePartsModule,
+    MoldModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }],
 })

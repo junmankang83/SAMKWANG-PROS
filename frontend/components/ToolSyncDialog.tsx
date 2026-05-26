@@ -15,6 +15,7 @@ import {
   FormField,
   Input,
 } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 async function readApiError(res: Response): Promise<string> {
@@ -181,7 +182,10 @@ export function ToolSyncDialog({ open, onOpenChange, onApplied }: ToolSyncDialog
               loading={loading}
               onClick={() => void loadPreview()}
             >
-              다시 조회
+              <span className="inline-flex items-center gap-1.5">
+                <Icon icon="mdi:refresh" className="h-4 w-4 shrink-0" aria-hidden />
+                다시 조회
+              </span>
             </Button>
           </div>
 
@@ -202,7 +206,10 @@ export function ToolSyncDialog({ open, onOpenChange, onApplied }: ToolSyncDialog
         </DialogBody>
         <DialogFooter className="gap-2 sm:justify-end">
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
-            취소
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+              취소
+            </span>
           </Button>
           <Button
             type="button"
@@ -211,7 +218,10 @@ export function ToolSyncDialog({ open, onOpenChange, onApplied }: ToolSyncDialog
             loading={saving}
             onClick={() => void handleSave()}
           >
-            저장
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:content-save-outline" className="h-4 w-4 shrink-0" aria-hidden />
+              저장
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -11,6 +11,7 @@ import {
   FormField,
   Input,
 } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import { useCallback, useEffect, useState } from 'react';
 import { SparePartsLedgerReport } from '@/components/SparePartsLedgerReport';
 
@@ -170,7 +171,10 @@ export function SparePartsInventory({
           </FormField>
           {filterMode === 'inboundDateRange' ? (
             <Button type="button" variant="primary" onClick={() => setShowReport(true)}>
-              보고서출력
+              <span className="inline-flex items-center gap-1.5">
+                <Icon icon="mdi:file-chart-outline" className="h-4 w-4 shrink-0" aria-hidden />
+                보고서출력
+              </span>
             </Button>
           ) : null}
         </div>

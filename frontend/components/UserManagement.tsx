@@ -18,6 +18,7 @@ import {
   FormGrid,
   Input,
 } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import { useCallback, useEffect, useState } from 'react';
 import { ErpUserPickDialog } from '@/components/ErpUserPickDialog';
 
@@ -156,7 +157,10 @@ export function UserManagement() {
           <p className="mt-1 text-sm text-app-muted">시스템 로그인 계정을 등록·관리합니다.</p>
         </div>
         <Button type="button" variant="primary" onClick={() => setAddOpen(true)}>
-          사용자 등록
+          <span className="inline-flex items-center gap-1.5">
+            <Icon icon="mdi:account-plus-outline" className="h-4 w-4 shrink-0" aria-hidden />
+            사용자 등록
+          </span>
         </Button>
       </div>
 
@@ -211,7 +215,10 @@ export function UserManagement() {
                           className="h-auto p-0 text-error"
                           onClick={() => void removeRow(row)}
                         >
-                          삭제
+                          <span className="inline-flex items-center gap-1">
+                            <Icon icon="mdi:delete-outline" className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            삭제
+                          </span>
                         </Button>
                       </td>
                     </tr>
@@ -235,7 +242,10 @@ export function UserManagement() {
                 className="shrink-0"
                 onClick={() => setErpPickOpen(true)}
               >
-                ERP 사용자 선택
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:account-search" className="h-4 w-4 shrink-0" aria-hidden />
+                  ERP 사용자 선택
+                </span>
               </Button>
             </DialogHeader>
             <DialogBody>
@@ -277,10 +287,16 @@ export function UserManagement() {
             </DialogBody>
             <DialogFooter className="gap-2 sm:justify-end">
               <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>
-                취소
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+                  취소
+                </span>
               </Button>
               <Button type="submit" variant="primary" disabled={busy} loading={busy}>
-                저장
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:content-save-outline" className="h-4 w-4 shrink-0" aria-hidden />
+                  저장
+                </span>
               </Button>
             </DialogFooter>
           </form>

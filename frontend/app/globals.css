@@ -175,8 +175,11 @@ html, body {
     visibility: hidden;
   }
 
+  /* 원장: 오버레이만 표시 / 연간 설비점검 계획서: 본문 article 표시(그 외 앱 크롬은 숨김) */
   .pros-ledger-report-overlay,
-  .pros-ledger-report-overlay * {
+  .pros-ledger-report-overlay *,
+  .pros-annual-inspection-report,
+  .pros-annual-inspection-report * {
     visibility: visible;
   }
 
@@ -210,4 +213,19 @@ html, body {
     page-break-inside: avoid;
     page-break-after: auto;
   }
+
+  /* 스크롤 영역(main) 안 인쇄 시 잘리지 않도록 */
+  main {
+    overflow: visible !important;
+  }
+
+  .pros-annual-inspection-report {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+
+/* 연간 설비점검 계획서 — 인쇄 시 표 헤더 배경·테두리 유지 (@page 가로는 인쇄 버튼 시 스크립트로 주입) */
+.pros-annual-inspection-report table {
+  border-color: #000;
 }

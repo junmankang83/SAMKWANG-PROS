@@ -24,6 +24,7 @@
     "compose:logs": "docker compose logs -f",
     "compose:ps": "docker compose ps",
     "prisma:migrate": "docker compose exec backend pnpm prisma migrate dev",
+    "prisma:migrate:deploy": "pnpm --filter @samkwang/backend exec prisma migrate deploy",
     "prisma:studio": "docker compose exec backend pnpm prisma studio --port 5555 --hostname 0.0.0.0"
   }
 }

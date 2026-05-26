@@ -15,6 +15,7 @@ import {
   FormField,
   Input,
 } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import { useCallback, useEffect, useState } from 'react';
 
 async function readApiError(res: Response): Promise<string> {
@@ -112,7 +113,10 @@ export function ErpUserPickDialog({ open, onOpenChange, onSelect }: ErpUserPickD
               loading={loading}
               onClick={() => void load()}
             >
-              조회
+              <span className="inline-flex items-center gap-1.5">
+                <Icon icon="mdi:magnify" className="h-4 w-4 shrink-0" aria-hidden />
+                조회
+              </span>
             </Button>
           </div>
 
@@ -168,7 +172,10 @@ export function ErpUserPickDialog({ open, onOpenChange, onSelect }: ErpUserPickD
                           className="h-auto p-0"
                           onClick={() => handlePick(row)}
                         >
-                          선택
+                          <span className="inline-flex items-center gap-1">
+                            <Icon icon="mdi:check-circle-outline" className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            선택
+                          </span>
                         </Button>
                       </td>
                     </tr>
@@ -180,7 +187,10 @@ export function ErpUserPickDialog({ open, onOpenChange, onSelect }: ErpUserPickD
         </DialogBody>
         <DialogFooter className="gap-2 sm:justify-end">
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
-            닫기
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+              닫기
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>

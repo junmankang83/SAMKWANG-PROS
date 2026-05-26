@@ -14,7 +14,7 @@ export default async function AppShellLayout({ children }: { children: React.Rea
       <AppTopNav user={user} />
       <div className="flex min-h-0 flex-1">
         <AppSidebar />
-        <main className="min-h-0 flex-1 overflow-auto bg-app-bg-subtle p-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-auto bg-app-bg-subtle p-6 print:bg-white print:p-3">{children}</main>
       </div>
     </div>
   );

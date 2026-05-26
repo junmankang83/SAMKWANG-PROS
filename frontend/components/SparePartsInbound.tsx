@@ -18,6 +18,7 @@ import {
   FormGrid,
   Input,
 } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import { MasterPartSearchSelect } from '@/components/MasterPartSearchSelect';
 import { ToolSearchSelect } from '@/components/ToolSearchSelect';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -326,7 +327,10 @@ export function SparePartsInbound() {
             />
           </FormField>
           <Button type="button" variant="primary" onClick={() => setAddOpen(true)}>
-            입고내역등록
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:package-variant-closed-plus" className="h-4 w-4 shrink-0" aria-hidden />
+              입고내역등록
+            </span>
           </Button>
         </div>
       </div>
@@ -407,7 +411,10 @@ export function SparePartsInbound() {
                               setLoadError(null);
                             }}
                           >
-                            수정
+                            <span className="inline-flex items-center gap-1">
+                              <Icon icon="mdi:pencil-outline" className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                              수정
+                            </span>
                           </Button>
                           <Button
                             type="button"
@@ -417,7 +424,10 @@ export function SparePartsInbound() {
                             disabled={busy}
                             onClick={() => void removeEntry(row)}
                           >
-                            삭제
+                            <span className="inline-flex items-center gap-1">
+                              <Icon icon="mdi:delete-outline" className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                              삭제
+                            </span>
                           </Button>
                         </div>
                       </td>
@@ -516,10 +526,16 @@ export function SparePartsInbound() {
             </DialogBody>
             <DialogFooter className="gap-2 sm:justify-end">
               <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>
-                취소
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+                  취소
+                </span>
               </Button>
               <Button type="submit" variant="primary" disabled={busy} loading={busy}>
-                저장
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:content-save-outline" className="h-4 w-4 shrink-0" aria-hidden />
+                  저장
+                </span>
               </Button>
             </DialogFooter>
           </form>
@@ -582,10 +598,16 @@ export function SparePartsInbound() {
             </DialogBody>
             <DialogFooter className="gap-2 sm:justify-end">
               <Button type="button" variant="secondary" onClick={() => setEditTarget(null)}>
-                취소
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+                  취소
+                </span>
               </Button>
               <Button type="submit" variant="primary" disabled={busy} loading={busy}>
-                저장
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon="mdi:content-save-outline" className="h-4 w-4 shrink-0" aria-hidden />
+                  저장
+                </span>
               </Button>
             </DialogFooter>
           </form>

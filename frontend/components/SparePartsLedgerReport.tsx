@@ -2,6 +2,7 @@
 
 import type { SparePartInventoryRow, SparePartLedgerPeriodResponse } from '@samkwang/shared';
 import { Button } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -118,10 +119,16 @@ export function SparePartsLedgerReport({
         <p className="text-sm text-app-muted">사출기 예비 부품 입출고 관리대장 미리보기</p>
         <div className="flex items-center gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
-            닫기
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+              닫기
+            </span>
           </Button>
           <Button type="button" onClick={handlePrint}>
-            출력
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:printer-outline" className="h-4 w-4 shrink-0" aria-hidden />
+              출력
+            </span>
           </Button>
         </div>
       </div>

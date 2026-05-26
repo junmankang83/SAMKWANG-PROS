@@ -12,6 +12,7 @@ import {
   CardTitle,
   Input,
 } from '@samkwang/ui-kit';
+import { Icon } from '@iconify/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
@@ -86,7 +87,10 @@ export function LoginForm() {
               loading={pending}
               disabled={pending}
             >
-              로그인
+              <span className="inline-flex items-center justify-center gap-2">
+                <Icon icon="mdi:login" className="h-5 w-5 shrink-0" aria-hidden />
+                로그인
+              </span>
             </Button>
           </div>
         </CardContent>
