@@ -8,6 +8,12 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Input,
 } from '@samkwang/ui-kit';
 import { Icon } from '@iconify/react';
@@ -15,7 +21,7 @@ import {
   MOLD_PARENT_CODE_GROUP_EQUIPMENT_DIVISION,
   MOLD_PARENT_CODE_GROUP_INSPECTION_DIVISION,
 } from '@samkwang/shared';
-import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 async function readApiError(res: Response): Promise<string> {
   const raw = await res.text().catch(() => '');
@@ -109,6 +115,38 @@ function canonicalInspectionCategory(stored: string, options: CodeSelectOption[]
   return t;
 }
 
+function formatInspectionCategoryLabel(stored: string, options: CodeSelectOption[]): string {
+  const t = stored.trim();
+  if (!t) {
+    return '—';
+  }
+  const byCode = options.find((o) => o.code.trim() === t);
+  if (byCode) {
+    return formatCodeSlashName(byCode.code, byCode.name);
+  }
+  const byName = options.find((o) => o.name.trim() === t);
+  if (byName) {
+    return formatCodeSlashName(byName.code, byName.name);
+  }
+  return t;
+}
+
+function rowToApiBody(r: EditableRow, inspectionDivisionOptions: CodeSelectOption[]) {
+  return {
+    categoryItemId: r.categoryItemId,
+    typeItemId: r.typeItemId ?? null,
+    inspectionCategory: canonicalInspectionCategory(r.inspectionCategory, inspectionDivisionOptions),
+    itemCode: r.itemCode.trim(),
+    itemName: r.itemName.trim(),
+    method: r.method.trim(),
+    detail: r.detail.trim(),
+    criteria: r.criteria.trim(),
+    cycle: r.cycle.trim(),
+    remarks: r.remarks.trim(),
+    sortOrder: r.sortOrder,
+  };
+}
+
 type InspectionApiRow = {
   id: string;
   categoryItemId: string;
@@ -171,60 +209,61 @@ function maxSuffixForEquipmentCode(base: string, itemCodes: readonly string[]): 
   return max;
 }
 
+/** 신규 행: 동일 설비구분의 기존·임시 코드 중 최대 번호 + 1 (예: A-S-001-2) */
+function nextItemCodeForNewDraft(
+  draft: EditableRow,
+  contextRows: EditableRow[],
+  categoryItemOptions: CodeSelectOption[],
+): string {
+  const opt = categoryItemOptions.find((o) => o.id === draft.categoryItemId);
+  const base = (opt?.code ?? '').trim().replace(/\s+/g, '');
+  if (!base) {
+    return '';
+  }
+  const otherCodes = contextRows
+    .filter((x) => x.categoryItemId === draft.categoryItemId && x.clientKey !== draft.clientKey)
+    .map((x) => x.itemCode.trim())
+    .filter(Boolean);
+  const n = maxSuffixForEquipmentCode(base, otherCodes) + 1;
+  let code = `${base}-${n}`;
+  if (code.length > 50) {
+    const over = code.length - 50;
+    const trimmedBase = base.length > over ? base.slice(0, base.length - over) : base.slice(0, 1);
+    code = `${trimmedBase}-${n}`.slice(0, 50);
+  }
+  return code;
+}
+
 /**
- * 신규 행(!id): 선택된 설비구분(하위) 코드 + `-1`, `-2` … (저장된 동일 설비구분 행의 최대 번호 다음부터)
+ * 신규 행(!id): 선택된 설비구분(하위) 코드 + `-1`, `-2` … (목록에 있는 모든 코드 기준 순차 부여)
  * DB `itemCode` 최대 50자 준수
  */
 function applyDraftItemCodes(rows: EditableRow[], categoryItemOptions: CodeSelectOption[]): EditableRow[] {
-  const maxSavedByCat = new Map<string, number>();
-  const categoryIds = [...new Set(rows.map((r) => r.categoryItemId).filter((id) => id.trim()))];
-  for (const catId of categoryIds) {
-    const opt = categoryItemOptions.find((o) => o.id === catId);
-    const base = (opt?.code ?? '').trim().replace(/\s+/g, '');
-    if (!base) {
+  const out: EditableRow[] = [];
+  for (const r of rows) {
+    if (r.id) {
+      out.push(r);
       continue;
     }
-    const savedCodes = rows
-      .filter((x) => x.id && x.categoryItemId === catId)
-      .map((x) => x.itemCode.trim());
-    maxSavedByCat.set(catId, maxSuffixForEquipmentCode(base, savedCodes));
+    out.push({
+      ...r,
+      itemCode: nextItemCodeForNewDraft(r, out, categoryItemOptions),
+    });
   }
-
-  const draftOrdinal = new Map<string, number>();
-
-  return rows.map((r) => {
-    if (r.id) {
-      return r;
-    }
-    const opt = categoryItemOptions.find((o) => o.id === r.categoryItemId);
-    const base = (opt?.code ?? '').trim().replace(/\s+/g, '');
-    if (!base) {
-      return r;
-    }
-    const start = maxSavedByCat.get(r.categoryItemId) ?? 0;
-    const k = (draftOrdinal.get(r.categoryItemId) ?? 0) + 1;
-    draftOrdinal.set(r.categoryItemId, k);
-    const n = start + k;
-    let code = `${base}-${n}`;
-    if (code.length > 50) {
-      const over = code.length - 50;
-      const trimmedBase = base.length > over ? base.slice(0, base.length - over) : base.slice(0, 1);
-      code = `${trimmedBase}-${n}`.slice(0, 50);
-    }
-    return { ...r, itemCode: code };
-  });
+  return out;
 }
 
-function rowHasContentBeyondCode(r: EditableRow): boolean {
-  return Boolean(
-    r.itemName.trim() ||
-      r.inspectionCategory.trim() ||
-      r.method.trim() ||
-      r.detail.trim() ||
-      r.criteria.trim() ||
-      r.cycle.trim() ||
-      r.remarks.trim(),
-  );
+function emptyNewDraftFields(row: EditableRow): EditableRow {
+  return {
+    ...row,
+    itemName: '',
+    method: '',
+    detail: '',
+    criteria: '',
+    cycle: '',
+    remarks: '',
+    inspectionCategory: row.inspectionCategory ?? '',
+  };
 }
 
 /** 저장 직전 신규 행 점검항목코드를 설비구분 코드-일련번호 규칙으로 확정 */
@@ -247,22 +286,6 @@ function newRowHasIncompleteRequired(r: EditableRow): boolean {
       r.remarks.trim(),
   );
   return (!hasCode || !hasName) && (hasCode || hasName || hasOther);
-}
-
-function serializeRow(r: EditableRow): string {
-  return JSON.stringify({
-    categoryItemId: r.categoryItemId,
-    typeItemId: r.typeItemId,
-    inspectionCategory: r.inspectionCategory.trim(),
-    itemCode: r.itemCode.trim(),
-    itemName: r.itemName.trim(),
-    method: r.method.trim(),
-    detail: r.detail.trim(),
-    criteria: r.criteria.trim(),
-    cycle: r.cycle.trim(),
-    remarks: r.remarks.trim(),
-    sortOrder: r.sortOrder,
-  });
 }
 
 function mapApiToEditable(row: InspectionApiRow): EditableRow {
@@ -293,26 +316,11 @@ export function MoldInspectionItemsRegistry() {
   const [inspectionDivisionError, setInspectionDivisionError] = useState<string | null>(null);
   const [filterCategoryItemId, setFilterCategoryItemId] = useState('');
   const [rows, setRows] = useState<EditableRow[]>([]);
-  const [selectedClientKey, setSelectedClientKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const baseline = useRef<Map<string, string>>(new Map());
-
-  const selectedRow = useMemo(
-    () => rows.find((r) => r.clientKey === selectedClientKey) ?? null,
-    [rows, selectedClientKey],
-  );
-
-  const rebuildBaseline = useCallback((list: EditableRow[]) => {
-    const m = new Map<string, string>();
-    for (const r of list) {
-      if (r.id) {
-        m.set(r.id, serializeRow(r));
-      }
-    }
-    baseline.current = m;
-  }, []);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [detailDraft, setDetailDraft] = useState<EditableRow | null>(null);
+  const [detailPersistBusy, setDetailPersistBusy] = useState(false);
 
   const loadCategoryFilterItems = useCallback(async () => {
     setCategoryFilterError(null);
@@ -407,17 +415,14 @@ export function MoldInspectionItemsRegistry() {
         }
         setLoadError(result.message);
         setRows([]);
-        rebuildBaseline([]);
         return;
       }
       const mapped = result.data.map(mapApiToEditable);
       setRows(mapped);
-      rebuildBaseline(mapped);
-      setSelectedClientKey(null);
     } finally {
       setBusy(false);
     }
-  }, [loadInspectionItems, rebuildBaseline]);
+  }, [loadInspectionItems]);
 
   /** 설비구분 값이 바뀔 때마다 목록을 불러옵니다. 처음에는 전체만 선택된 상태면 자동 조회를 하지 않습니다. */
   const prevFilterCategoryRef = useRef<string | null>(null);
@@ -435,8 +440,28 @@ export function MoldInspectionItemsRegistry() {
     void inquire();
   }, [filterCategoryItemId, inquire]);
 
-  function updateRow(clientKey: string, patch: Partial<EditableRow>) {
-    setRows((prev) => prev.map((r) => (r.clientKey === clientKey ? { ...r, ...patch } : r)));
+  function closeDetailDialog() {
+    setDetailDialogOpen(false);
+    setDetailDraft(null);
+  }
+
+  function patchDetailDraft(patch: Partial<EditableRow>) {
+    setDetailDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  function openDetailDialog(row: EditableRow) {
+    setLoadError(null);
+    if (row.id) {
+      setDetailDraft({ ...row });
+    } else {
+      const cleared = emptyNewDraftFields(row);
+      const withCode = {
+        ...cleared,
+        itemCode: nextItemCodeForNewDraft(cleared, rows, categoryItemOptions),
+      };
+      setDetailDraft(withCode);
+    }
+    setDetailDialogOpen(true);
   }
 
   function addInputRow() {
@@ -448,159 +473,119 @@ export function MoldInspectionItemsRegistry() {
     }
     setLoadError(null);
     const clientKey = newClientKey();
-    setRows((prev) => {
-      const fresh: EditableRow = {
-        clientKey,
-        categoryItemId: filterCategoryItemId,
-        typeItemId: null,
-        inspectionCategory: '',
-        itemCode: '',
-        itemName: '',
-        method: '',
-        detail: '',
-        criteria: '',
-        cycle: '',
-        remarks: '',
-        sortOrder: prev.length,
-      };
-      return applyDraftItemCodes([...prev, fresh], categoryItemOptions);
+    const fresh: EditableRow = emptyNewDraftFields({
+      clientKey,
+      categoryItemId: filterCategoryItemId,
+      typeItemId: null,
+      inspectionCategory: '',
+      itemCode: '',
+      itemName: '',
+      method: '',
+      detail: '',
+      criteria: '',
+      cycle: '',
+      remarks: '',
+      sortOrder: rows.length,
     });
-    setSelectedClientKey(clientKey);
+    const nextRows = applyDraftItemCodes([...rows, fresh], categoryItemOptions);
+    setRows(nextRows);
+    const draft = nextRows.find((r) => r.clientKey === clientKey) ?? fresh;
+    openDetailDialog(draft);
   }
 
-  async function saveRows() {
-    setBusy(true);
+  const detailItemCodePreview = useMemo(() => {
+    if (!detailDraft) {
+      return '';
+    }
+    if (detailDraft.id) {
+      return detailDraft.itemCode;
+    }
+    return nextItemCodeForNewDraft(detailDraft, rows, categoryItemOptions);
+  }, [detailDraft, rows, categoryItemOptions]);
+
+  async function saveDetailDialog() {
+    if (!detailDraft) {
+      return;
+    }
+    const prepared = detailDraft.id
+      ? detailDraft
+      : {
+          ...detailDraft,
+          itemCode: nextItemCodeForNewDraft(detailDraft, rows, categoryItemOptions),
+        };
+    if (!prepared.itemName.trim()) {
+      setLoadError('점검항목(명)을 입력해 주세요.');
+      return;
+    }
+    if (!prepared.categoryItemId.trim()) {
+      setLoadError('설비구분(하위 코드)이 없어 저장할 수 없습니다.');
+      return;
+    }
+    if (!prepared.itemCode.trim()) {
+      setLoadError('점검항목코드를 생성할 수 없습니다. 설비구분을 확인해 주세요.');
+      return;
+    }
+    if (!prepared.id && newRowHasIncompleteRequired(prepared)) {
+      setLoadError('점검항목(명)을 입력해 주세요.');
+      return;
+    }
+
+    setDetailPersistBusy(true);
     setLoadError(null);
     try {
-      const enriched = assignAutoItemCodesForSave(rows, categoryItemOptions);
-      setRows(enriched);
-      const snapshot = [...enriched];
-      const writtenCategoryIds = new Set<string>();
-      for (const r of snapshot) {
-        if (!r.id) {
-          if (newRowHasIncompleteRequired(r)) {
-            setLoadError(
-              '신규 행은 점검항목(명)이 필요합니다. 점검항목코드는 설비구분(하위) 코드 뒤에 -1, -2 … 순으로 자동 부여됩니다.',
-            );
-            return;
-          }
-          if (!r.itemCode.trim() || !r.itemName.trim()) {
-            continue;
-          }
-          if (!r.categoryItemId?.trim()) {
-            setLoadError('신규 행은 설비구분(하위 코드)이 있어야 저장할 수 있습니다.');
-            return;
-          }
-          const res = await fetch('/api/mold/inspection-items', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              categoryItemId: r.categoryItemId,
-              typeItemId: r.typeItemId ?? null,
-              inspectionCategory: canonicalInspectionCategory(r.inspectionCategory, inspectionDivisionOptions),
-              itemCode: r.itemCode.trim(),
-              itemName: r.itemName.trim(),
-              method: r.method.trim(),
-              detail: r.detail.trim(),
-              criteria: r.criteria.trim(),
-              cycle: r.cycle.trim(),
-              remarks: r.remarks.trim(),
-              sortOrder: r.sortOrder,
-            }),
-          });
-          if (res.status === 401) {
-            window.location.href = '/login';
-            return;
-          }
-          if (!res.ok) {
-            setLoadError(await readApiError(res));
-            return;
-          }
-          writtenCategoryIds.add(r.categoryItemId);
-        } else {
-          const snap = baseline.current.get(r.id);
-          const now = serializeRow(r);
-          if (snap === now) {
-            continue;
-          }
-          const res = await fetch(`/api/mold/inspection-items/${r.id}`, {
+      const body = rowToApiBody(prepared, inspectionDivisionOptions);
+      const res = prepared.id
+        ? await fetch(`/api/mold/inspection-items/${prepared.id}`, {
             method: 'PATCH',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              categoryItemId: r.categoryItemId,
-              typeItemId: r.typeItemId ?? null,
-              inspectionCategory: canonicalInspectionCategory(r.inspectionCategory, inspectionDivisionOptions),
-              itemCode: r.itemCode.trim(),
-              itemName: r.itemName.trim(),
-              method: r.method.trim(),
-              detail: r.detail.trim(),
-              criteria: r.criteria.trim(),
-              cycle: r.cycle.trim(),
-              remarks: r.remarks.trim(),
-              sortOrder: r.sortOrder,
-            }),
+            body: JSON.stringify(body),
+          })
+        : await fetch('/api/mold/inspection-items', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
           });
-          if (res.status === 401) {
-            window.location.href = '/login';
-            return;
-          }
-          if (!res.ok) {
-            setLoadError(await readApiError(res));
-            return;
-          }
-          writtenCategoryIds.add(r.categoryItemId);
-        }
-      }
-      const reloadCategoryId =
-        writtenCategoryIds.size === 1 ? [...writtenCategoryIds][0] : undefined;
-      const reload = await loadInspectionItems(
-        reloadCategoryId !== undefined ? { categoryItemId: reloadCategoryId } : undefined,
-      );
-      if (!reload.ok) {
-        if (reload.kind === 'auth') {
-          window.location.href = '/login';
-          return;
-        }
-        setLoadError(
-          `저장은 완료되었으나 목록을 다시 불러오지 못했습니다. 상단 [조회]로 새로고침해 주세요. · ${reload.message}`,
-        );
+      if (res.status === 401) {
+        window.location.href = '/login';
         return;
       }
-      if (reloadCategoryId !== undefined && reloadCategoryId !== filterCategoryItemId) {
-        setFilterCategoryItemId(reloadCategoryId);
+      if (!res.ok) {
+        setLoadError(await readApiError(res));
+        return;
       }
-      const mapped = reload.data.map(mapApiToEditable);
-      setRows(mapped);
-      rebuildBaseline(mapped);
-      setSelectedClientKey(null);
+      if (!prepared.id) {
+        setRows((prev) => prev.filter((x) => x.clientKey !== prepared.clientKey));
+      }
+      closeDetailDialog();
+      await inquire();
     } finally {
-      setBusy(false);
+      setDetailPersistBusy(false);
     }
   }
 
-  async function deleteSelected() {
-    const r = selectedRow;
-    if (!r) {
-      setLoadError('삭제할 행을 표에서 선택해 주세요.');
+  async function deleteDetailDialog() {
+    if (!detailDraft) {
       return;
     }
-    if (!r.id) {
-      setRows((prev) => applyDraftItemCodes(
-        prev.filter((x) => x.clientKey !== r.clientKey),
-        categoryItemOptions,
-      ));
-      setSelectedClientKey(null);
+    if (!detailDraft.id) {
+      setRows((prev) =>
+        applyDraftItemCodes(
+          prev.filter((x) => x.clientKey !== detailDraft.clientKey),
+          categoryItemOptions,
+        ),
+      );
+      closeDetailDialog();
       return;
     }
-    if (!confirm(`「${r.itemCode}」 점검항목을 삭제할까요?`)) {
+    if (!window.confirm(`「${detailDraft.itemCode}」 점검항목을 삭제할까요? 저장된 데이터는 서버에서도 제거됩니다.`)) {
       return;
     }
-    setBusy(true);
+    setDetailPersistBusy(true);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/mold/inspection-items/${r.id}`, {
+      const res = await fetch(`/api/mold/inspection-items/${detailDraft.id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -612,11 +597,20 @@ export function MoldInspectionItemsRegistry() {
         setLoadError(await readApiError(res));
         return;
       }
+      closeDetailDialog();
       await inquire();
     } finally {
-      setBusy(false);
+      setDetailPersistBusy(false);
     }
   }
+
+  const detailEquipmentLabel = useMemo(() => {
+    if (!detailDraft?.categoryItemId) {
+      return '';
+    }
+    const o = categoryItemOptions.find((x) => x.id === detailDraft.categoryItemId);
+    return o ? formatCodeSlashName(o.code, o.name) : detailDraft.categoryItemId;
+  }, [detailDraft, categoryItemOptions]);
 
   const tableInputCls = 'h-8 min-w-0 text-sm';
   const tableSelectCls =
@@ -627,10 +621,10 @@ export function MoldInspectionItemsRegistry() {
   const inspectionItemsColgroup = (
     <colgroup>
       <col style={{ width: '3rem' }} />
+      <col style={{ width: '12rem' }} />
+      <col style={{ width: '9rem' }} />
       <col />
-      <col />
-      <col />
-      <col />
+      <col style={{ width: '8.5rem' }} />
     </colgroup>
   );
 
@@ -643,7 +637,7 @@ export function MoldInspectionItemsRegistry() {
       <div className="shrink-0 space-y-1">
         <h1 className="text-xl font-semibold text-app-text">점검항목관리</h1>
         <p className="mt-1 text-sm text-app-muted">
-          설비구분을 바꾸면 해당 구분 목록이 자동으로 조회됩니다. 전체 목록은 「전체」 선택 후 [조회]를 누르세요.
+          설비구분을 바꾸면 해당 구분 목록이 자동으로 조회됩니다. [상세내역수정] 팝업에서 점검방법·상세내역 등을 입력·저장·삭제할 수 있습니다.
         </p>
       </div>
 
@@ -696,18 +690,6 @@ export function MoldInspectionItemsRegistry() {
                     입력
                   </span>
                 </Button>
-                <Button type="button" variant="primary" size="sm" disabled={busy} loading={busy} onClick={() => void saveRows()}>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Icon icon="mdi:content-save-outline" className="h-4 w-4 shrink-0" aria-hidden />
-                    저장
-                  </span>
-                </Button>
-                <Button type="button" variant="danger" size="sm" disabled={busy} onClick={() => void deleteSelected()}>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Icon icon="mdi:delete-outline" className="h-4 w-4 shrink-0" aria-hidden />
-                    삭제
-                  </span>
-                </Button>
               </div>
             </div>
           </div>
@@ -728,8 +710,17 @@ export function MoldInspectionItemsRegistry() {
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-auto px-4 pb-4 pt-3">
-            <table className="pros-data-table pros-data-table-head-center w-full min-w-[40rem] text-app-text">
+            <table className="pros-data-table pros-data-table-head-center w-full min-w-[36rem] text-app-text">
               {inspectionItemsColgroup}
+              <thead>
+                <tr className="bg-app-muted/30 text-xs font-semibold">
+                  <th className="px-1 py-2">NO</th>
+                  <th className="px-2 py-2">점검구분</th>
+                  <th className="px-2 py-2">점검항목코드</th>
+                  <th className="px-2 py-2 text-left">점검항목</th>
+                  <th className="px-1 py-2">상세</th>
+                </tr>
+              </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
@@ -739,157 +730,37 @@ export function MoldInspectionItemsRegistry() {
                   </tr>
                 ) : (
                   rows.map((r, rowIdx) => {
-                    const sel = r.clientKey === selectedClientKey;
-                    const rowBg = sel ? 'cursor-pointer bg-brand/10' : 'cursor-pointer';
-                    const onSelect = () => setSelectedClientKey(r.clientKey);
-                    const seq = rowIdx + 1;
+                    const isDraft = !r.id;
                     return (
-                      <Fragment key={r.clientKey}>
-                        <tr className={rowBg} onClick={onSelect} aria-selected={sel}>
-                          <td rowSpan={3} className="pros-cell-center align-middle text-sm font-medium text-app-muted">
-                            {seq}
-                          </td>
-                          <td className="p-1 align-top">
-                            <InspectionLabeledField label="점검구분">
-                              <select
-                                className={tableSelectCls}
-                                value={inspectionCategorySelectControlValue(
-                                  r.inspectionCategory,
-                                  inspectionDivisionOptions,
-                                )}
-                                disabled={busy}
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  const legacy = parseInspectionCategoryLegacyOptionValue(v);
-                                  updateRow(r.clientKey, {
-                                    inspectionCategory: legacy !== null ? legacy : v.trim(),
-                                  });
-                                }}
-                              >
-                                <option value="">선택</option>
-                                {inspectionDivisionOptions.map((o) => (
-                                  <option key={o.id} value={o.code.trim()}>
-                                    {formatCodeSlashName(o.code, o.name)}
-                                  </option>
-                                ))}
-                                {(() => {
-                                  const t = r.inspectionCategory.trim();
-                                  if (!t) {
-                                    return null;
-                                  }
-                                  const inList = inspectionDivisionOptions.some(
-                                    (o) => o.code.trim() === t || o.name.trim() === t,
-                                  );
-                                  if (inList) {
-                                    return null;
-                                  }
-                                  return (
-                                    <option value={inspectionCategoryLegacyOptionValue(t)}>
-                                      (기준정보에 없음){' '}
-                                      {t.length > 48 ? `${t.slice(0, 48)}…` : t}
-                                    </option>
-                                  );
-                                })()}
-                              </select>
-                            </InspectionLabeledField>
-                          </td>
-                          <td className="p-1 align-top">
-                            <InspectionLabeledField label="점검항목코드">
-                              <Input
-                                readOnly
-                                title="설비구분(하위) 코드에 따라 -1, -2 … 순으로 자동 부여됩니다."
-                                className={`${tableInputCls} cursor-default bg-app-muted/20`}
-                                value={r.itemCode}
-                                disabled={busy}
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </InspectionLabeledField>
-                          </td>
-                          <td colSpan={2} className="p-1 align-top">
-                            <InspectionLabeledField label="점검항목">
-                              <Input
-                                className={tableInputCls}
-                                value={r.itemName}
-                                disabled={busy}
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateRow(r.clientKey, { itemName: e.target.value })}
-                              />
-                            </InspectionLabeledField>
-                          </td>
-                        </tr>
-                        <tr className={rowBg} onClick={onSelect} aria-selected={sel}>
-                          <td className="p-1 align-top">
-                            <InspectionLabeledField label="점검방법">
-                              <Input
-                                className={tableInputCls}
-                                value={r.method}
-                                disabled={busy}
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateRow(r.clientKey, { method: e.target.value })}
-                              />
-                            </InspectionLabeledField>
-                          </td>
-                          <td className="p-1 align-top">
-                            <InspectionLabeledField label="판정기준">
-                              <Input
-                                className={tableInputCls}
-                                value={r.criteria}
-                                disabled={busy}
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateRow(r.clientKey, { criteria: e.target.value })}
-                              />
-                            </InspectionLabeledField>
-                          </td>
-                          <td className="p-1 align-top">
-                            <InspectionLabeledField label="점검주기">
-                              <Input
-                                className={tableInputCls}
-                                value={r.cycle}
-                                disabled={busy}
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateRow(r.clientKey, { cycle: e.target.value })}
-                              />
-                            </InspectionLabeledField>
-                          </td>
-                          <td className="p-1 align-top">
-                            <InspectionLabeledField label="비고">
-                              <Input
-                                className={tableInputCls}
-                                value={r.remarks}
-                                disabled={busy}
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateRow(r.clientKey, { remarks: e.target.value })}
-                              />
-                            </InspectionLabeledField>
-                          </td>
-                        </tr>
-                        <tr className={`${rowBg} border-b-2 border-app-border`} onClick={onSelect} aria-selected={sel}>
-                          <td colSpan={4} className="p-1 align-top">
-                            <InspectionLabeledField label="점검항목상세내역">
-                              <textarea
-                                className={detailTextareaCls}
-                                value={r.detail}
-                                disabled={busy}
-                                rows={5}
-                                placeholder="점검항목 상세내역을 입력하세요."
-                                aria-label="점검항목상세내역"
-                                onFocus={() => setSelectedClientKey(r.clientKey)}
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onChange={(e) => updateRow(r.clientKey, { detail: e.target.value })}
-                              />
-                            </InspectionLabeledField>
-                          </td>
-                        </tr>
-                      </Fragment>
+                      <tr
+                        key={r.clientKey}
+                        className={isDraft ? 'bg-amber-50/80 dark:bg-amber-950/20' : undefined}
+                      >
+                        <td className="pros-cell-center align-middle text-sm font-medium text-app-muted">
+                          {rowIdx + 1}
+                        </td>
+                        <td className="px-2 py-2 align-middle text-left text-sm">
+                          {formatInspectionCategoryLabel(r.inspectionCategory, inspectionDivisionOptions)}
+                        </td>
+                        <td className="px-2 py-2 align-middle font-mono text-xs">{r.itemCode || '—'}</td>
+                        <td className="px-2 py-2 align-middle text-left text-sm">
+                          {r.itemName.trim() || (
+                            <span className="text-app-muted">{isDraft ? '(입력 중)' : '—'}</span>
+                          )}
+                        </td>
+                        <td className="px-1 py-2 align-middle text-center">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 whitespace-nowrap px-2 text-xs"
+                            disabled={busy || detailPersistBusy}
+                            onClick={() => openDetailDialog(r)}
+                          >
+                            상세내역수정
+                          </Button>
+                        </td>
+                      </tr>
                     );
                   })
                 )}
@@ -898,6 +769,197 @@ export function MoldInspectionItemsRegistry() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={detailDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !detailPersistBusy) {
+            if (detailDraft && !detailDraft.id) {
+              setRows((prev) =>
+                applyDraftItemCodes(
+                  prev.filter((x) => x.clientKey !== detailDraft.clientKey),
+                  categoryItemOptions,
+                ),
+              );
+            }
+            closeDetailDialog();
+          }
+        }}
+      >
+        <DialogContent size="xl">
+          <DialogHeader>
+            <DialogTitle>{detailDraft?.id ? '점검항목 상세내역 수정' : '점검항목 등록'}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="max-h-[min(75vh,40rem)] space-y-4 overflow-y-auto">
+            {detailDraft ? (
+              <>
+                {detailEquipmentLabel ? (
+                  <p className="text-sm text-app-muted">
+                    <span className="font-medium">설비구분</span>{' '}
+                    <span className="font-semibold text-app-text">{detailEquipmentLabel}</span>
+                  </p>
+                ) : null}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <InspectionLabeledField label="점검구분">
+                    <select
+                      className={tableSelectCls}
+                      value={inspectionCategorySelectControlValue(
+                        detailDraft.inspectionCategory,
+                        inspectionDivisionOptions,
+                      )}
+                      disabled={busy || detailPersistBusy}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const legacy = parseInspectionCategoryLegacyOptionValue(v);
+                        patchDetailDraft({
+                          inspectionCategory: legacy !== null ? legacy : v.trim(),
+                        });
+                      }}
+                    >
+                      <option value="">선택</option>
+                      {inspectionDivisionOptions.map((o) => (
+                        <option key={o.id} value={o.code.trim()}>
+                          {formatCodeSlashName(o.code, o.name)}
+                        </option>
+                      ))}
+                      {(() => {
+                        const t = detailDraft.inspectionCategory.trim();
+                        if (!t) {
+                          return null;
+                        }
+                        const inList = inspectionDivisionOptions.some(
+                          (o) => o.code.trim() === t || o.name.trim() === t,
+                        );
+                        if (inList) {
+                          return null;
+                        }
+                        return (
+                          <option value={inspectionCategoryLegacyOptionValue(t)}>
+                            (기준정보에 없음) {t.length > 48 ? `${t.slice(0, 48)}…` : t}
+                          </option>
+                        );
+                      })()}
+                    </select>
+                  </InspectionLabeledField>
+                  <InspectionLabeledField label="점검항목코드">
+                    <Input
+                      readOnly
+                      title="설비구분(하위) 코드에 따라 -1, -2 … 순으로 자동 부여됩니다."
+                      className={`${tableInputCls} cursor-default bg-app-muted/20`}
+                      value={detailItemCodePreview}
+                      disabled={busy || detailPersistBusy}
+                    />
+                  </InspectionLabeledField>
+                </div>
+                <InspectionLabeledField label="점검항목">
+                  <Input
+                    className={tableInputCls}
+                    value={detailDraft.itemName}
+                    placeholder={detailDraft.id ? undefined : '점검항목명을 입력하세요.'}
+                    disabled={busy || detailPersistBusy}
+                    onChange={(e) => patchDetailDraft({ itemName: e.target.value })}
+                  />
+                </InspectionLabeledField>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <InspectionLabeledField label="점검방법">
+                    <Input
+                      className={tableInputCls}
+                      value={detailDraft.method}
+                      disabled={busy || detailPersistBusy}
+                      onChange={(e) => patchDetailDraft({ method: e.target.value })}
+                    />
+                  </InspectionLabeledField>
+                  <InspectionLabeledField label="판정기준">
+                    <Input
+                      className={tableInputCls}
+                      value={detailDraft.criteria}
+                      disabled={busy || detailPersistBusy}
+                      onChange={(e) => patchDetailDraft({ criteria: e.target.value })}
+                    />
+                  </InspectionLabeledField>
+                  <InspectionLabeledField label="점검주기">
+                    <Input
+                      className={tableInputCls}
+                      value={detailDraft.cycle}
+                      disabled={busy || detailPersistBusy}
+                      onChange={(e) => patchDetailDraft({ cycle: e.target.value })}
+                    />
+                  </InspectionLabeledField>
+                  <InspectionLabeledField label="비고">
+                    <Input
+                      className={tableInputCls}
+                      value={detailDraft.remarks}
+                      disabled={busy || detailPersistBusy}
+                      onChange={(e) => patchDetailDraft({ remarks: e.target.value })}
+                    />
+                  </InspectionLabeledField>
+                </div>
+                <InspectionLabeledField label="점검항목상세내역">
+                  <textarea
+                    className={detailTextareaCls}
+                    value={detailDraft.detail}
+                    disabled={busy || detailPersistBusy}
+                    rows={8}
+                    placeholder="점검항목 상세내역을 입력하세요."
+                    aria-label="점검항목상세내역"
+                    onChange={(e) => patchDetailDraft({ detail: e.target.value })}
+                  />
+                </InspectionLabeledField>
+              </>
+            ) : null}
+          </DialogBody>
+          <DialogFooter className="flex flex-row flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || detailPersistBusy}
+              onClick={() => {
+                if (detailDraft && !detailDraft.id) {
+                  setRows((prev) =>
+                    applyDraftItemCodes(
+                      prev.filter((x) => x.clientKey !== detailDraft.clientKey),
+                      categoryItemOptions,
+                    ),
+                  );
+                }
+                closeDetailDialog();
+              }}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Icon icon="mdi:close" className="h-4 w-4 shrink-0" aria-hidden />
+                취소
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              disabled={busy || detailPersistBusy || !detailDraft}
+              loading={detailPersistBusy}
+              onClick={() => void deleteDetailDialog()}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Icon icon="mdi:delete-outline" className="h-4 w-4 shrink-0" aria-hidden />
+                삭제
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={busy || detailPersistBusy || !detailDraft}
+              loading={detailPersistBusy}
+              onClick={() => void saveDetailDialog()}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Icon icon="mdi:content-save-outline" className="h-4 w-4 shrink-0" aria-hidden />
+                저장
+              </span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

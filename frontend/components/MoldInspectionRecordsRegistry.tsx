@@ -312,21 +312,69 @@ export function MoldInspectionRecordsRegistry() {
     setContentDialogOpen(true);
   }
 
-  function saveContentDialog() {
+  function closeContentDialog() {
+    setContentDialogOpen(false);
+    setContentItem(null);
+    setContentDraft('');
+  }
+
+  async function persistInspectionPlan(
+    nextMeta: Record<string, ItemRecordMeta>,
+    options?: { closeContentDialog?: boolean },
+  ): Promise<boolean> {
+    if (!categoryItemId) {
+      setLoadError('설비구분을 먼저 선택해 주세요.');
+      return false;
+    }
+    const ids = items.map((x) => x.id);
+    setLoadError(null);
+    const res = await fetch('/api/mold/inspection-plans', {
+      method: 'PUT',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        categoryItemId,
+        year,
+        planJson: gridToJson(planGrid),
+        actualJson: gridToJson(actualGrid),
+        recordMetaJson: recordMetaToPayload(nextMeta, ids),
+      }),
+    });
+    if (res.status === 401) {
+      window.location.href = '/login';
+      return false;
+    }
+    if (!res.ok) {
+      setLoadError(await readApiError(res));
+      return false;
+    }
+    setRecordMeta(nextMeta);
+    if (options?.closeContentDialog) {
+      closeContentDialog();
+    }
+    await loadData();
+    return true;
+  }
+
+  async function saveContentDialog() {
     if (!contentItem) {
       return;
     }
     const trimmed = contentDraft.slice(0, NOTES_MAX);
-    setRecordMeta((prev) => ({
-      ...prev,
+    const nextMeta: Record<string, ItemRecordMeta> = {
+      ...recordMeta,
       [contentItem.id]: {
-        remarks: prev[contentItem.id]?.remarks ?? '',
+        remarks: recordMeta[contentItem.id]?.remarks ?? '',
         inspectionNotes: trimmed,
       },
-    }));
-    setContentDialogOpen(false);
-    setContentItem(null);
-    setContentDraft('');
+    };
+    setContentPersistBusy(true);
+    try {
+      await persistInspectionPlan(nextMeta, { closeContentDialog: true });
+    } finally {
+      setContentPersistBusy(false);
+    }
   }
 
   async function deleteContentDialog() {
@@ -340,7 +388,6 @@ export function MoldInspectionRecordsRegistry() {
     ) {
       return;
     }
-    const ids = items.map((x) => x.id);
     const nextMeta: Record<string, ItemRecordMeta> = {
       ...recordMeta,
       [contentItem.id]: {
@@ -349,34 +396,8 @@ export function MoldInspectionRecordsRegistry() {
       },
     };
     setContentPersistBusy(true);
-    setLoadError(null);
     try {
-      const res = await fetch('/api/mold/inspection-plans', {
-        method: 'PUT',
-        credentials: 'include',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          categoryItemId,
-          year,
-          planJson: gridToJson(planGrid),
-          actualJson: gridToJson(actualGrid),
-          recordMetaJson: recordMetaToPayload(nextMeta, ids),
-        }),
-      });
-      if (res.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-      if (!res.ok) {
-        setLoadError(await readApiError(res));
-        return;
-      }
-      setRecordMeta(nextMeta);
-      setContentDialogOpen(false);
-      setContentItem(null);
-      setContentDraft('');
-      await loadData();
+      await persistInspectionPlan(nextMeta, { closeContentDialog: true });
     } finally {
       setContentPersistBusy(false);
     }
@@ -387,32 +408,9 @@ export function MoldInspectionRecordsRegistry() {
       setLoadError('설비구분을 먼저 선택해 주세요.');
       return;
     }
-    const ids = items.map((x) => x.id);
     setBusy(true);
-    setLoadError(null);
     try {
-      const res = await fetch('/api/mold/inspection-plans', {
-        method: 'PUT',
-        credentials: 'include',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          categoryItemId,
-          year,
-          planJson: gridToJson(planGrid),
-          actualJson: gridToJson(actualGrid),
-          recordMetaJson: recordMetaToPayload(recordMeta, ids),
-        }),
-      });
-      if (res.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-      if (!res.ok) {
-        setLoadError(await readApiError(res));
-        return;
-      }
-      await loadData();
+      await persistInspectionPlan(recordMeta);
     } finally {
       setBusy(false);
     }
@@ -780,8 +778,9 @@ export function MoldInspectionRecordsRegistry() {
               type="button"
               variant="primary"
               size="sm"
-              disabled={busy || contentPersistBusy}
-              onClick={() => saveContentDialog()}
+              disabled={busy || contentPersistBusy || !contentItem}
+              loading={contentPersistBusy}
+              onClick={() => void saveContentDialog()}
             >
               <span className="inline-flex items-center gap-1.5">
                 <Icon icon="mdi:content-save-outline" className="h-4 w-4 shrink-0" aria-hidden />
