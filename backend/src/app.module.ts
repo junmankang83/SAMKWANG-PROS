@@ -9,6 +9,7 @@ import { MasterDataModule } from './master-data/master-data.module';
 import { SparePartsModule } from './spare-parts/spare-parts.module';
 import { ErpModule } from './external/erp/erp.module';
 import { MoldModule } from './mold/mold.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { MoldModule } from './mold/mold.module';
     MasterDataModule,
     SparePartsModule,
     MoldModule,
+    MailModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }],
 })

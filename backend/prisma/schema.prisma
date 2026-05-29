@@ -219,3 +219,83 @@ model MoldInspectionPlan {
   @@unique([categoryItemId, year])
   @@index([year, categoryItemId])
 }
+
+enum MailScheduleType {
+  DAILY
+  CRON
+}
+
+enum MailSendLogStatus {
+  SUCCESS
+  FAILURE
+}
+
+/// SMTP 발신 설정 (단일 행 id=default 권장)
+model MailSmtpSettings {
+  id             String   @id @default("default")
+  host           String   @default("") @db.VarChar(255)
+  port           Int      @default(587)
+  secure         Boolean  @default(false)
+  user           String   @default("") @db.VarChar(255)
+  passwordCipher String   @default("") @db.Text
+  fromName       String   @default("") @db.VarChar(200)
+  fromAddress    String   @default("") @db.VarChar(255)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+/// 메일발송메뉴 — 템플릿(종류) 정의
+model MailMenu {
+  id             String   @id @default(cuid())
+  code           String   @unique @db.VarChar(80)
+  label          String   @db.VarChar(200)
+  defaultSubject String   @default("") @db.VarChar(500)
+  defaultBody    String   @default("") @db.Text
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sendRules MailSendRule[]
+}
+
+/// 메일발송정보 — 스케줄·수신·본문
+model MailSendRule {
+  id             String           @id @default(cuid())
+  enabled        Boolean          @default(true)
+  name           String           @db.VarChar(200)
+  scheduleType   MailScheduleType @default(DAILY)
+  /// CRON 모드일 때 (Asia/Seoul 기준 5필드)
+  cronExpression String?          @db.VarChar(120)
+  /// DAILY 모드일 때 "HH:mm"
+  dailyTime      String?          @db.VarChar(5)
+  /// 비트마스크: bit0=일 … bit6=토 (1이면 해당 요일 발송)
+  dailyDaysMask  Int              @default(127)
+  /// 수신 이메일 문자열 배열 JSON
+  toAddresses    Json             @default("[]")
+  subject        String           @default("") @db.VarChar(500)
+  body           String           @default("") @db.Text
+  mailMenuId     String?
+  mailMenu       MailMenu?        @relation(fields: [mailMenuId], references: [id], onDelete: SetNull)
+  /// 마지막으로 발송 처리한 분 슬롯(UTC) — 중복 방지
+  lastRunSlotUtc DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  logs MailSendLog[]
+
+  @@index([enabled])
+  @@index([mailMenuId])
+}
+
+/// 발송 이력
+model MailSendLog {
+  id            String            @id @default(cuid())
+  ruleId        String
+  rule          MailSendRule      @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  sentAt        DateTime          @default(now())
+  status        MailSendLogStatus
+  errorMessage  String?           @db.Text
+  smtpMessageId String?           @db.VarChar(255)
+
+  @@index([ruleId, sentAt])
+}

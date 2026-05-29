@@ -53,6 +53,18 @@ export const APP_DOMAINS: AppDomainMenu[] = [
       { label: '연간설비점검계획서', href: '/app/mold/annual-inspection-plan', icon: 'mdi:file-chart-outline' },
     ],
   },
+  {
+    id: 'mail',
+    label: '메일발송관리',
+    basePath: '/app/mail',
+    icon: 'mdi:email-send-outline',
+    items: [
+      { label: '메일설정', href: '/app/mail/settings', icon: 'mdi:email-outline' },
+      { label: '메일발송메뉴관리', href: '/app/mail/sending-menu-admin', icon: 'mdi:playlist-edit' },
+      { label: '메일발송정보', href: '/app/mail/sending-info', icon: 'mdi:card-account-details-outline' },
+      { label: '메일발송메뉴', href: '/app/mail/sending-menu', icon: 'mdi:email-multiple-outline' },
+    ],
+  },
 ];
 
 export function domainFromPathname(pathname: string): AppDomainMenu | undefined {
