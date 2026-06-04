@@ -103,6 +103,22 @@ html, body {
   color: var(--app-muted);
 }
 
+.pros-mail-dispatch-table.pros-data-table tbody td {
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.pros-mail-dispatch-table.pros-data-table tbody td.pros-cell-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pros-mail-dispatch-table.pros-data-table td.pros-cell-actions .flex {
+  justify-content: center;
+}
+
+
 .pros-page-size-select {
   min-width: 4.5rem;
   padding: 0.35rem 0.5rem;
@@ -223,6 +239,12 @@ html, body {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+}
+
+/* Radix Dialog (@samkwang/ui-kit): 오버레이·본문 기본 z-50이 sticky 상단바 등과 겹칠 때 모달이 보이지 않는 현상 방지 */
+[data-radix-dialog-overlay],
+[data-radix-dialog-content] {
+  z-index: 200 !important;
 }
 
 /* 연간 설비점검 계획서 — 인쇄 시 표 헤더 배경·테두리 유지 (@page 가로는 인쇄 버튼 시 스크립트로 주입) */

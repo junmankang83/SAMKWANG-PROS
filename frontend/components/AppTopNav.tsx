@@ -47,7 +47,7 @@ export function AppTopNav({ user }: AppTopNavProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b border-app-border bg-app-surface-02 px-4 shadow-topbar print:hidden">
+      <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-app-border bg-app-surface-02 px-4 shadow-topbar print:hidden">
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <Link
             href="/app"

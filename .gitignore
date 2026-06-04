@@ -47,6 +47,9 @@ venv/
 *.swp
 .DS_Store
 
+# Windows 예약 이름 오생성(예: 리다이렉션) — git add 시 fatal 방지
+frontend/nul
+
 # 로그·임시
 *.log
 tmp/

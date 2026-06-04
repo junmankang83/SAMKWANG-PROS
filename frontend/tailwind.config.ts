@@ -1,6 +1,9 @@
 import type { Config } from 'tailwindcss';
 import samkwangPreset from '@samkwang/ui-kit/tailwind-preset';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Tailwind 설정에서 CJS 플러그인 로드
+const tailwindcssAnimate = require('tailwindcss-animate');
+
 const config: Config = {
   presets: [samkwangPreset],
   content: [
@@ -19,7 +22,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [tailwindcssAnimate],
 };
 
 export default config;

@@ -61,6 +61,10 @@ export class CreateMailSendRuleDto {
   @IsOptional()
   @IsString()
   mailMenuId?: string | null;
+
+  @IsString()
+  @MinLength(1)
+  mailSmtpProfileId!: string;
 }
 
 export class UpdateMailSendRuleDto {
@@ -114,4 +118,40 @@ export class UpdateMailSendRuleDto {
   @IsOptional()
   @IsString()
   mailMenuId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  mailSmtpProfileId?: string;
+}
+
+/** 즉시 발송 — 메뉴관리에서 선택한 메뉴 + 발송정보 규칙 + (선택) 추가 수신·요일·시각 */
+export class ManualSendDto {
+  @IsString()
+  @MinLength(1)
+  mailMenuId!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsEmail({}, { each: true })
+  additionalToAddresses?: string[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(127)
+  sendDaysMask?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(48)
+  @IsString({ each: true })
+  sendTimes?: string[];
+
+  /** 비워 두면 규칙에 연결된 SMTP 프로필 사용 */
+  @IsOptional()
+  @IsString()
+  mailSmtpProfileId?: string;
 }

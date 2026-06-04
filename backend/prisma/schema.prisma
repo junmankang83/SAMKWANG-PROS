@@ -230,9 +230,10 @@ enum MailSendLogStatus {
   FAILURE
 }
 
-/// SMTP 발신 설정 (단일 행 id=default 권장)
-model MailSmtpSettings {
-  id             String   @id @default("default")
+/// SMTP 발신 프로필 (여러 건 등록, 발송 규칙에서 선택)
+model MailSmtpProfile {
+  id             String   @id @default(cuid())
+  name           String   @db.VarChar(200)
   host           String   @default("") @db.VarChar(255)
   port           Int      @default(587)
   secure         Boolean  @default(false)
@@ -240,22 +241,66 @@ model MailSmtpSettings {
   passwordCipher String   @default("") @db.Text
   fromName       String   @default("") @db.VarChar(200)
   fromAddress    String   @default("") @db.VarChar(255)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-/// 메일발송메뉴 — 템플릿(종류) 정의
-model MailMenu {
-  id             String   @id @default(cuid())
-  code           String   @unique @db.VarChar(80)
-  label          String   @db.VarChar(200)
-  defaultSubject String   @default("") @db.VarChar(500)
-  defaultBody    String   @default("") @db.Text
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   sendRules MailSendRule[]
+  mailMenus MailMenu[]
+
+  @@index([sortOrder])
+}
+
+/// 메일발송메뉴 — 템플릿(종류) 정의
+model MailMenu {
+  id              String   @id @default(cuid())
+  code            String   @unique @db.VarChar(80)
+  label           String   @db.VarChar(200)
+  defaultSubject  String   @default("") @db.VarChar(500)
+  defaultBody     String   @default("") @db.Text
+  sortOrder       Int      @default(0)
+  /// 메뉴별 조회/발송용 긴 쿼리·텍스트
+  menuQuery       String   @default("") @db.Text
+  /// 수신 이메일 문자열 배열 JSON
+  recipientEmails Json     @default("[]")
+  /// 비트마스크: bit0=일 … bit6=토 (MailSendRule.dailyDaysMask 와 동일)
+  sendDaysMask    Int      @default(127)
+  /// "HH:mm" 문자열 배열 JSON
+  sendTimes       Json     @default("[]")
+  /// 메뉴 기준 자동 발송에 사용할 SMTP 프로필(비우면 연결된 규칙의 프로필 순)
+  mailSmtpProfileId String?
+  mailSmtpProfile    MailSmtpProfile? @relation(fields: [mailSmtpProfileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  /// 메뉴 기준 자동 발송 마지막 처리 분(UTC) — 중복 방지
+  lastMenuSendSlotUtc DateTime?
+  /// 저장된 요일·시각에 스케줄러 자동 발송 사용 여부(끄면 시간이 와도 발송하지 않음)
+  scheduleAutoSendEnabled Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sendRules MailSendRule[]
+  sendLogs  MailMenuSendLog[]
+
+  @@index([mailSmtpProfileId])
+}
+
+/// 메일 메뉴 기준 자동 발송 이력 (MailSendLog 와 별도)
+model MailMenuSendLog {
+  id             String            @id @default(cuid())
+  mailMenuId     String
+  mailMenu       MailMenu          @relation(fields: [mailMenuId], references: [id], onDelete: Cascade)
+  sentAt         DateTime          @default(now())
+  status         MailSendLogStatus
+  errorMessage   String?           @db.Text
+  smtpMessageId  String?           @db.VarChar(255)
+  /// 발송 시점 수신자 목록(JSON 문자열 배열)
+  toAddressesSnapshot Json?
+  /// HTML 본문 내 추적 픽셀용 비밀 토큰(미설정 시 텍스트만 발송)
+  openTrackingToken String?        @unique @db.VarChar(64)
+  /// 수신 클라이언트가 픽셀 URL을 최초 요청한 시각(이미지 차단 시 기록 없음)
+  firstOpenedAt  DateTime?
+  openCount      Int               @default(0)
+
+  @@index([mailMenuId, sentAt])
 }
 
 /// 메일발송정보 — 스케줄·수신·본문
@@ -276,6 +321,8 @@ model MailSendRule {
   body           String           @default("") @db.Text
   mailMenuId     String?
   mailMenu       MailMenu?        @relation(fields: [mailMenuId], references: [id], onDelete: SetNull)
+  mailSmtpProfileId String
+  mailSmtpProfile   MailSmtpProfile @relation(fields: [mailSmtpProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   /// 마지막으로 발송 처리한 분 슬롯(UTC) — 중복 방지
   lastRunSlotUtc DateTime?
   createdAt      DateTime         @default(now())
@@ -285,6 +332,7 @@ model MailSendRule {
 
   @@index([enabled])
   @@index([mailMenuId])
+  @@index([mailSmtpProfileId])
 }
 
 /// 발송 이력
@@ -296,6 +344,11 @@ model MailSendLog {
   status        MailSendLogStatus
   errorMessage  String?           @db.Text
   smtpMessageId String?           @db.VarChar(255)
+  /// 발송 시점 수신자 목록(JSON 문자열 배열)
+  toAddressesSnapshot Json?
+  openTrackingToken String?       @unique @db.VarChar(64)
+  firstOpenedAt DateTime?
+  openCount     Int               @default(0)
 
   @@index([ruleId, sentAt])
 }

@@ -5,12 +5,12 @@ const SEOUL = 'Asia/Seoul';
 
 const WD_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
-function seoulWeekdaySun0(d: Date): number {
+export function seoulWeekdaySun0(d: Date): number {
   const w = new Intl.DateTimeFormat('en-US', { timeZone: SEOUL, weekday: 'short' }).format(d);
   return WD_SHORT.indexOf(w as (typeof WD_SHORT)[number]);
 }
 
-function seoulHHmm(d: Date): string {
+export function seoulHHmm(d: Date): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: SEOUL,
     hour: '2-digit',
@@ -27,7 +27,7 @@ function sameSeoulMinute(a: Date, b: Date): boolean {
   return seoulHHmm(a) === seoulHHmm(b) && seoulYmd(a) === seoulYmd(b);
 }
 
-function seoulYmd(d: Date): string {
+export function seoulYmd(d: Date): string {
   const parts = new Intl.DateTimeFormat('sv-SE', {
     timeZone: SEOUL,
     year: 'numeric',
@@ -102,4 +102,15 @@ export function shouldFireRule(
     }
   }
   return false;
+}
+
+/**
+ * 발신 시각 기준 Asia/Seoul 달력일을 `YYYY-MM-DD_` 형태로 붙인 제목.
+ * 메뉴「기본 제목」등에 입력한 내용이 접미사로 그대로 실려 나갑니다.
+ */
+export function mailSubjectWithSeoulSendDate(subject: string, sentAt: Date = new Date()): string {
+  const dateStr = seoulYmd(sentAt);
+  const base = subject.trim();
+  const tail = base.length > 0 ? base : '(제목 없음)';
+  return `${dateStr}_${tail}`;
 }

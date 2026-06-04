@@ -5,6 +5,7 @@ import { Icon } from '@iconify/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { domainFromPathname } from '@/lib/navigation/app-menu';
+import { MailSendingMenuStatusNav } from '@/components/MailSendingMenuStatusNav';
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -34,6 +35,9 @@ export function AppSidebar() {
           <span>{domain.label}</span>
         </ListHeader>
         {domain.items.map((item) => {
+          if (item.mailMenuAccordion) {
+            return <MailSendingMenuStatusNav key={item.href} />;
+          }
           const active = pathname === item.href;
           if (item.disabled) {
             return (

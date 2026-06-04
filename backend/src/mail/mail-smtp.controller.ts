@@ -1,23 +1,38 @@
-import { Body, Controller, Get, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
 import { MailSmtpService } from './mail-smtp.service';
-import { MailSmtpTestDto, UpsertMailSmtpDto } from './dto/mail-smtp.dto';
+import { CreateMailSmtpProfileDto, MailSmtpTestDto, UpdateMailSmtpProfileDto } from './dto/mail-smtp.dto';
 
 @Controller('mail/smtp')
 export class MailSmtpController {
   constructor(private readonly mailSmtp: MailSmtpService) {}
 
   @Get()
-  get() {
-    return this.mailSmtp.getSettings();
+  list() {
+    return this.mailSmtp.list();
   }
 
-  @Put()
-  put(@Body() dto: UpsertMailSmtpDto) {
-    return this.mailSmtp.upsertSettings(dto);
+  @Post()
+  create(@Body() dto: CreateMailSmtpProfileDto) {
+    return this.mailSmtp.create(dto);
   }
 
-  @Post('test')
-  test(@Body() dto: MailSmtpTestDto) {
-    return this.mailSmtp.sendTest(dto.to);
+  @Get(':id')
+  get(@Param('id') id: string) {
+    return this.mailSmtp.get(id);
+  }
+
+  @Put(':id')
+  put(@Param('id') id: string, @Body() dto: UpdateMailSmtpProfileDto) {
+    return this.mailSmtp.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.mailSmtp.remove(id);
+  }
+
+  @Post(':id/test')
+  test(@Param('id') id: string, @Body() dto: MailSmtpTestDto) {
+    return this.mailSmtp.sendTest(id, dto.toAddresses);
   }
 }

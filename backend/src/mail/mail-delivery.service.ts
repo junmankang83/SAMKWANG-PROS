@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
+import { buildMailHtmlBody } from './mail-html-body';
 
 export type SendMailInput = {
   fromName: string;
@@ -8,6 +9,12 @@ export type SendMailInput = {
   to: string[];
   subject: string;
   text: string;
+  /** 설정 시 multipart(alternative)로 HTML을 함께 보내고 본문 하단에 열람 추적 픽셀을 넣습니다. */
+  openPixelUrl?: string;
+  /** 거래명세 표 등: HTML 파트에만 넣을 안전한 `<table>…` 조각(`appendMenuDataReport`와 함께 사용) */
+  mailHtmlTableFragment?: string;
+  /** `mailHtmlTableFragment` 앞에 표시할 순수 텍스트(사용자 본문·표 제목 등) */
+  mailHtmlStructuredIntro?: string;
   smtp: {
     host: string;
     port: number;
@@ -31,12 +38,25 @@ export class MailDeliveryService {
     };
     const transport = nodemailer.createTransport(options);
     const from = `${input.fromName} <${input.fromAddress}>`.trim();
-    const res = await transport.sendMail({
+    const pixel = input.openPixelUrl?.trim();
+    const structured =
+      input.mailHtmlTableFragment != null && input.mailHtmlTableFragment.length > 0
+        ? { intro: input.mailHtmlStructuredIntro ?? '', tableHtml: input.mailHtmlTableFragment }
+        : null;
+    const mailOptions: nodemailer.SendMailOptions = {
       from,
       to: input.to.join(', '),
       subject: input.subject,
       text: input.text,
-    });
+    };
+    if (pixel || structured) {
+      mailOptions.html = buildMailHtmlBody({
+        plainFallback: input.text,
+        openPixelUrl: pixel,
+        structured,
+      });
+    }
+    const res = await transport.sendMail(mailOptions);
     return { messageId: res.messageId };
   }
 

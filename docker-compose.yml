@@ -46,6 +46,9 @@ services:
       DEMO_AUTH_PASSWORD: ${DEMO_AUTH_PASSWORD:-demo}
       # 호스트에서 백엔드 :4000 등으로 / 열 때 프론트(게이트웨이)로 안내 리다이렉트 (포트가 같으면 HTML 안내만)
       PUBLIC_APP_BASE: ${PUBLIC_APP_BASE:-}
+      MAIL_TRACKING_PUBLIC_URL: ${MAIL_TRACKING_PUBLIC_URL:-}
+      FRONTEND_PUBLIC_URL: ${FRONTEND_PUBLIC_URL:-}
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-}
       APP_VERSION: ${APP_VERSION:-0.1.0}
       TZ: Asia/Seoul
     ports:

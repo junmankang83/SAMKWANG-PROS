@@ -9,17 +9,9 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Input,
-  Label,
 } from '@samkwang/ui-kit';
 import { Icon } from '@iconify/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 async function readApiError(res: Response): Promise<string> {
   const raw = await res.text().catch(() => '');
@@ -40,103 +32,117 @@ async function readApiError(res: Response): Promise<string> {
   return raw.trim().slice(0, 400) || `요청 실패 (${res.status})`;
 }
 
-type ScheduleType = 'DAILY' | 'CRON';
+type SourceType = 'MENU' | 'RULE';
 
-type MailMenuOpt = { id: string; code: string; label: string };
+type ToAddressesSource = 'snapshot' | 'current_menu' | 'current_rule';
 
-type RuleRow = {
+type UnifiedLogRow = {
   id: string;
-  enabled: boolean;
-  name: string;
-  scheduleType: ScheduleType;
-  cronExpression: string | null;
-  dailyTime: string | null;
-  dailyDaysMask: number;
-  toAddresses: unknown;
-  subject: string;
-  body: string;
-  mailMenuId: string | null;
-  mailMenu?: MailMenuOpt | null;
-  lastRunSlotUtc: string | null;
+  sentAt: string;
+  sourceType: SourceType;
+  menuCode: string | null;
+  menuLabel: string | null;
+  ruleName: string | null;
+  smtpProfileName: string | null;
+  toAddresses: string[];
+  toAddressesSource: ToAddressesSource;
+  status: string;
+  errorMessage: string | null;
+  smtpMessageId: string | null;
+  readStatusLabel: string;
+  readStatusDetail: string;
+  hasOpenTracking: boolean;
+  firstOpenedAt: string | null;
+  openCount: number;
 };
 
-const WD_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+const SEOUL_TZ = 'Asia/Seoul';
 
-function parseToList(json: unknown): string[] {
-  if (!Array.isArray(json)) {
-    return [];
+function formatSentAtSeoul(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat('ko-KR', {
+      timeZone: SEOUL_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date(iso));
+  } catch {
+    return iso;
   }
-  return json.filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean);
 }
 
-function maskFromBools(days: boolean[]): number {
-  let m = 0;
-  for (let i = 0; i < 7; i++) {
-    if (days[i]) {
-      m |= 1 << i;
-    }
+function statusLabel(s: string): string {
+  if (s === 'SUCCESS') {
+    return '성공';
   }
-  return m;
+  if (s === 'FAILURE') {
+    return '실패';
+  }
+  return s;
 }
 
-function boolsFromMask(mask: number): boolean[] {
-  return Array.from({ length: 7 }, (_, i) => (mask & (1 << i)) !== 0);
+function sourceLabel(t: SourceType): string {
+  return t === 'MENU' ? '메뉴' : '규칙';
 }
 
-function formatDaysSummary(mask: number): string {
-  const b = boolsFromMask(mask);
-  return WD_LABELS.filter((_, i) => b[i]).join('/') || '—';
+function describeRow(r: UnifiedLogRow): string {
+  if (r.sourceType === 'MENU') {
+    const label = r.menuLabel ?? r.menuCode ?? '—';
+    return `${label}`;
+  }
+  const rn = r.ruleName ?? '—';
+  const link = r.menuLabel ? ` · ${r.menuLabel}` : '';
+  return `${rn}${link}`;
 }
 
-function emptyDraft(): {
-  id: string | null;
-  name: string;
-  enabled: boolean;
-  scheduleType: ScheduleType;
-  cronExpression: string;
-  dailyTime: string;
-  dailyDays: boolean[];
-  toText: string;
-  subject: string;
-  body: string;
-  mailMenuId: string;
-} {
+function recipientTitle(r: UnifiedLogRow): string {
+  const list = r.toAddresses.join(', ');
+  if (r.toAddressesSource === 'snapshot') {
+    return list || '수신자 없음';
+  }
+  if (r.toAddressesSource === 'current_menu') {
+    return list
+      ? `${list}\n※ 발송 시점 스냅샷이 없어, 메뉴에 저장된 현재 수신자를 표시합니다.`
+      : '메뉴에 수신자가 없습니다.';
+  }
+  return list
+    ? `${list}\n※ 발송 시점 스냅샷이 없어, 규칙에 저장된 현재 수신자를 표시합니다.`
+    : '규칙에 수신자가 없습니다.';
+}
+
+function memoDisplay(r: UnifiedLogRow): { text: string; title: string } {
+  const err = r.errorMessage?.trim();
+  if (err) {
+    return { text: err, title: err };
+  }
+  const mid = r.smtpMessageId?.trim();
+  if (r.status === 'SUCCESS') {
+    return {
+      text: '정상 발송',
+      title: mid ? `SMTP 메시지 ID(문의·기술 확인용): ${mid}` : '오류 없음',
+    };
+  }
   return {
-    id: null,
-    name: '',
-    enabled: true,
-    scheduleType: 'DAILY',
-    cronExpression: '0 9 * * *',
-    dailyTime: '09:00',
-    dailyDays: boolsFromMask(127),
-    toText: '',
-    subject: '',
-    body: '',
-    mailMenuId: '',
+    text: '실패(상세 메시지 없음)',
+    title: mid ? `SMTP 메시지 ID: ${mid}` : '오류 메시지가 기록되지 않았습니다.',
   };
 }
 
 export function MailSendingInfoRegistry() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [rows, setRows] = useState<RuleRow[]>([]);
-  const [menus, setMenus] = useState<MailMenuOpt[]>([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [draft, setDraft] = useState(emptyDraft());
+  const [rows, setRows] = useState<UnifiedLogRow[]>([]);
+  const [take, setTake] = useState(100);
 
-  const loadMenus = useCallback(async () => {
-    const res = await fetch('/api/mail/menus', { credentials: 'include', cache: 'no-store' });
-    if (res.ok) {
-      const data = (await res.json()) as MailMenuOpt[];
-      setMenus(data);
-    }
-  }, []);
-
-  const loadRules = useCallback(async () => {
+  const load = useCallback(async () => {
     setBusy(true);
     setLoadError(null);
     try {
-      const res = await fetch('/api/mail/rules', { credentials: 'include', cache: 'no-store' });
+      const res = await fetch(`/api/mail/send-logs?take=${take}`, { credentials: 'include', cache: 'no-store' });
       if (res.status === 401) {
         window.location.href = '/login';
         return;
@@ -146,142 +152,63 @@ export function MailSendingInfoRegistry() {
         setRows([]);
         return;
       }
-      const data = (await res.json()) as RuleRow[];
-      setRows(data);
+      const raw = (await res.json()) as unknown;
+      if (!Array.isArray(raw)) {
+        setRows([]);
+        return;
+      }
+      setRows(
+        raw.map((x) => {
+          const o = x as Record<string, unknown>;
+          const to = o.toAddresses;
+          const toAddresses = Array.isArray(to) ? to.filter((e): e is string => typeof e === 'string').map((e) => e.trim()).filter(Boolean) : [];
+          const src = o.toAddressesSource;
+          const toAddressesSource: ToAddressesSource =
+            src === 'current_rule' ? 'current_rule' : src === 'current_menu' ? 'current_menu' : 'snapshot';
+          return {
+            id: String(o.id ?? ''),
+            sentAt: String(o.sentAt ?? ''),
+            sourceType: o.sourceType === 'RULE' ? 'RULE' : 'MENU',
+            menuCode: o.menuCode != null ? String(o.menuCode) : null,
+            menuLabel: o.menuLabel != null ? String(o.menuLabel) : null,
+            ruleName: o.ruleName != null ? String(o.ruleName) : null,
+            smtpProfileName: o.smtpProfileName != null ? String(o.smtpProfileName) : null,
+            toAddresses,
+            toAddressesSource,
+            status: String(o.status ?? ''),
+            errorMessage: o.errorMessage != null ? String(o.errorMessage) : null,
+            smtpMessageId: o.smtpMessageId != null ? String(o.smtpMessageId) : null,
+            readStatusLabel: typeof o.readStatusLabel === 'string' ? o.readStatusLabel : '—',
+            readStatusDetail:
+              typeof o.readStatusDetail === 'string'
+                ? o.readStatusDetail
+                : '열람 정보를 불러오지 못했습니다.',
+            hasOpenTracking: o.hasOpenTracking === true,
+            firstOpenedAt: o.firstOpenedAt != null ? String(o.firstOpenedAt) : null,
+            openCount: typeof o.openCount === 'number' && Number.isFinite(o.openCount) ? o.openCount : 0,
+          };
+        }),
+      );
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [take]);
 
   useEffect(() => {
-    void loadMenus();
-    void loadRules();
-  }, [loadMenus, loadRules]);
+    void load();
+  }, [load]);
 
-  function openCreate() {
-    setDraft(emptyDraft());
-    setDialogOpen(true);
-  }
-
-  function openEdit(r: RuleRow) {
-    setDraft({
-      id: r.id,
-      name: r.name,
-      enabled: r.enabled,
-      scheduleType: r.scheduleType,
-      cronExpression: r.cronExpression ?? '0 9 * * *',
-      dailyTime: r.dailyTime ?? '09:00',
-      dailyDays: boolsFromMask(r.dailyDaysMask),
-      toText: parseToList(r.toAddresses).join('\n'),
-      subject: r.subject,
-      body: r.body,
-      mailMenuId: r.mailMenuId ?? '',
-    });
-    setDialogOpen(true);
-  }
-
-  async function saveDraft() {
-    const toAddresses = draft.toText
-      .split(/[\n,;]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (!draft.name.trim()) {
-      setLoadError('규칙 이름을 입력해 주세요.');
-      return;
-    }
-    if (toAddresses.length === 0) {
-      setLoadError('수신 이메일을 한 줄 이상 입력해 주세요.');
-      return;
-    }
-    const payload: Record<string, unknown> = {
-      name: draft.name.trim(),
-      enabled: draft.enabled,
-      scheduleType: draft.scheduleType,
-      cronExpression: draft.scheduleType === 'CRON' ? draft.cronExpression.trim() : null,
-      dailyTime: draft.scheduleType === 'DAILY' ? draft.dailyTime.trim() : null,
-      dailyDaysMask: maskFromBools(draft.dailyDays),
-      toAddresses,
-      subject: draft.subject.trim(),
-      body: draft.body,
-      mailMenuId: draft.mailMenuId.trim() || null,
-    };
-    setBusy(true);
-    setLoadError(null);
-    try {
-      const url = draft.id ? `/api/mail/rules/${draft.id}` : '/api/mail/rules';
-      const method = draft.id ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
-        method,
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.status === 401) {
-        window.location.href = '/login';
+  /** 열람(픽셀) 반영을 위해 주기적으로 목록을 다시 불러옵니다. */
+  useEffect(() => {
+    const intervalMs = 20_000;
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
         return;
       }
-      if (!res.ok) {
-        setLoadError(await readApiError(res));
-        return;
-      }
-      setDialogOpen(false);
-      await loadRules();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeRule(id: string, name: string) {
-    if (!window.confirm(`「${name}」 규칙을 삭제할까요?`)) {
-      return;
-    }
-    setBusy(true);
-    setLoadError(null);
-    try {
-      const res = await fetch(`/api/mail/rules/${id}`, { method: 'DELETE', credentials: 'include' });
-      if (res.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-      if (!res.ok) {
-        setLoadError(await readApiError(res));
-        return;
-      }
-      await loadRules();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function toggleEnabled(r: RuleRow) {
-    setBusy(true);
-    setLoadError(null);
-    try {
-      const res = await fetch(`/api/mail/rules/${r.id}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !r.enabled }),
-      });
-      if (res.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-      if (!res.ok) {
-        setLoadError(await readApiError(res));
-        return;
-      }
-      await loadRules();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const scheduleHint = useMemo(
-    () =>
-      'DAILY: Asia/Seoul 기준. CRON: 5필드(분 시 일 월 요일) 또는 6필드; 예 `0 9 * * *` = 매일 9시.',
-    [],
-  );
+      void load();
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [load]);
 
   return (
     <div className="space-y-4">
@@ -289,15 +216,38 @@ export function MailSendingInfoRegistry() {
         <div>
           <h1 className="text-xl font-semibold text-app-text">메일발송정보</h1>
           <p className="mt-1 max-w-3xl text-sm text-app-muted">
-            스케줄·수신자·본문을 등록하면 매분 서버가 조건을 확인해 발송합니다. {scheduleHint}
+            메뉴·규칙에서 실제 발송된 이력입니다. 수신자는 발송 시점 스냅샷이 있으면 그대로 보여 주고, 없으면 메뉴·규칙에 <strong className="text-app-text">현재 저장된</strong> 주소로 보완합니다.
+            오류·메모 열에는 사람이 읽을 수 있는 메시지만 넣고, 성공 시 SMTP 메시지 ID는 툴팁에만 둡니다. <strong className="text-app-text">열람</strong>은 HTML 본문 하단의 추적 이미지(픽셀) 요청으로 기록됩니다. 공개 API 베이스는{' '}
+            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">MAIL_TRACKING_PUBLIC_URL</code>·
+            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">PUBLIC_APP_BASE</code>·
+            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">FRONTEND_PUBLIC_URL</code>·
+            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">BACKEND_PUBLIC_URL</code> 순으로, 없으면{' '}
+            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">CORS_ORIGIN</code> 첫 주소에 <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">/api</code>를 붙여 사용합니다. 외부 수신(예: 휴대폰 LTE)에서는 반드시 인터넷에서 열리는 URL을 지정하세요. 열람은 수신자에게 별도 확인 메일을 요청하지 않고, HTML 본문의 픽셀 요청으로만 기록됩니다. 이 표는 약 20초마다 자동 새로고침됩니다. 텍스트만 보기·이미지 차단 시에는 미확인으로 남을 수 있습니다.
           </p>
         </div>
-        <Button type="button" variant="primary" size="sm" disabled={busy} onClick={openCreate}>
-          <span className="inline-flex items-center gap-1.5">
-            <Icon icon="mdi:plus" className="h-4 w-4 shrink-0" aria-hidden />
-            규칙 추가
-          </span>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-app-muted">
+            <span>건수</span>
+            <select
+              className="rounded-md border border-app-border bg-app-surface px-2 py-1.5 text-sm text-app-text"
+              value={take}
+              disabled={busy}
+              onChange={(e) => setTake(Number(e.target.value) || 100)}
+            >
+              {[50, 100, 200, 300].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button type="button" variant="secondary" size="sm" disabled={busy} loading={busy} onClick={() => void load()}>
+            <span className="inline-flex items-center gap-1.5">
+              <Icon icon="mdi:refresh" className="h-4 w-4 shrink-0" aria-hidden />
+              새로고침
+            </span>
+          </Button>
+        </div>
       </div>
 
       {loadError ? (
@@ -309,191 +259,91 @@ export function MailSendingInfoRegistry() {
 
       <Card className="shadow-card">
         <CardHeader>
-          <CardTitle className="text-base">발송 규칙</CardTitle>
+          <CardTitle className="text-base">발송 이력</CardTitle>
         </CardHeader>
-        <CardContent className="overflow-x-auto p-0 sm:p-0">
-          <table className="pros-data-table pros-data-table-head-center w-full min-w-[56rem] text-sm text-app-text">
+        <CardContent className="overflow-x-hidden p-0 sm:p-0">
+          <table className="pros-data-table pros-data-table-head-center pros-mail-dispatch-table w-full max-w-full text-sm text-app-text">
+            <colgroup>
+              <col className="w-[15%]" />
+              <col className="w-[7%]" />
+              <col className="w-[16%]" />
+              <col className="w-[11%]" />
+              <col className="w-[22%]" />
+              <col className="w-[8%]" />
+              <col className="w-[13%]" />
+              <col className="w-[8%]" />
+            </colgroup>
             <thead>
               <tr className="bg-app-muted/30">
-                <th className="px-2 py-2">사용</th>
-                <th className="px-2 py-2">이름</th>
-                <th className="px-2 py-2">스케줄</th>
-                <th className="px-2 py-2 text-left">수신</th>
-                <th className="px-2 py-2 text-left">제목</th>
-                <th className="px-2 py-2">메뉴</th>
-                <th className="px-2 py-2">마지막 슬롯(UTC)</th>
-                <th className="px-2 py-2">작업</th>
+                <th>발송시각</th>
+                <th>구분</th>
+                <th>메뉴·규칙</th>
+                <th>SMTP</th>
+                <th title="스냅샷이 없는 오래된 이력은 메뉴·규칙의 현재 수신자를 참고로 표시합니다.">
+                  수신자
+                </th>
+                <th>발송결과</th>
+                <th>오류·메모</th>
+                <th title="HTML 본문의 추적 픽셀 기준. 확인=최초 열람 기록 있음, 미확인=픽셀 포함·아직 미요청, —=추적 없음.">열람</th>
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {busy && rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="pros-table-empty text-app-muted">
-                    등록된 규칙이 없습니다. [규칙 추가]를 눌러 주세요.
+                    불러오는 중…
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="pros-table-empty text-app-muted">
+                    아직 발송 이력이 없습니다. 메일발송관리에서 스케줄·즉시 발송이 실행되면 여기에 표시됩니다.
                   </td>
                 </tr>
               ) : (
-                rows.map((r) => {
-                  const sched =
-                    r.scheduleType === 'CRON'
-                      ? `CRON: ${r.cronExpression ?? '—'}`
-                      : `매일 ${r.dailyTime ?? '—'} (${formatDaysSummary(r.dailyDaysMask)})`;
-                  const toPreview = parseToList(r.toAddresses).join(', ');
-                  return (
-                    <tr key={r.id}>
-                      <td className="px-2 py-1.5">
-                        <Button type="button" variant="secondary" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void toggleEnabled(r)}>
-                          {r.enabled ? 'ON' : 'OFF'}
-                        </Button>
-                      </td>
-                      <td className="px-2 py-1.5 font-medium">{r.name}</td>
-                      <td className="max-w-[14rem] whitespace-pre-wrap px-2 py-1.5 text-left text-xs">{sched}</td>
-                      <td className="max-w-[12rem] truncate px-2 py-1.5 text-left" title={toPreview}>
-                        {toPreview || '—'}
-                      </td>
-                      <td className="max-w-[10rem] truncate px-2 py-1.5 text-left">{r.subject || '—'}</td>
-                      <td className="px-2 py-1.5 text-xs">{r.mailMenu?.label ?? '—'}</td>
-                      <td className="px-2 py-1.5 font-mono text-xs">{r.lastRunSlotUtc ? new Date(r.lastRunSlotUtc).toISOString().slice(0, 16) : '—'}</td>
-                      <td className="px-2 py-1.5">
-                        <div className="flex flex-wrap gap-1">
-                          <Button type="button" variant="secondary" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => openEdit(r)}>
-                            수정
-                          </Button>
-                          <Button type="button" variant="danger" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void removeRule(r.id, r.name)}>
-                            삭제
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                rows.map((r) => (
+                  <tr key={`${r.sourceType}-${r.id}`}>
+                    <td className="pros-cell-center pros-cell-truncate whitespace-nowrap font-mono text-sm" title={r.sentAt}>
+                      {r.sentAt ? formatSentAtSeoul(r.sentAt) : '—'}
+                    </td>
+                    <td className="pros-cell-center text-sm">{sourceLabel(r.sourceType)}</td>
+                    <td className="pros-cell-center pros-cell-truncate text-sm" title={describeRow(r)}>
+                      {describeRow(r)}
+                    </td>
+                    <td className="pros-cell-center pros-cell-truncate text-sm" title={r.smtpProfileName ?? ''}>
+                      {r.smtpProfileName ?? '—'}
+                    </td>
+                    <td className="pros-cell-center pros-cell-truncate text-sm" title={recipientTitle(r)}>
+                      {r.toAddresses.length ? r.toAddresses.join(', ') : '—'}
+                    </td>
+                    <td className="pros-cell-center text-sm">
+                      <span className={r.status === 'SUCCESS' ? 'text-emerald-700' : r.status === 'FAILURE' ? 'text-red-700' : ''}>
+                        {statusLabel(r.status)}
+                      </span>
+                    </td>
+                    <td className="pros-cell-center pros-cell-truncate text-sm" title={memoDisplay(r).title}>
+                      {memoDisplay(r).text}
+                    </td>
+                    <td className="pros-cell-center text-sm text-app-text" title={r.readStatusDetail}>
+                      <span
+                        className={`leading-snug ${
+                          r.status === 'SUCCESS' && r.hasOpenTracking && r.firstOpenedAt
+                            ? 'text-emerald-700'
+                            : r.status === 'SUCCESS' && r.hasOpenTracking && !r.firstOpenedAt
+                              ? 'text-amber-700'
+                              : ''
+                        }`}
+                      >
+                        {r.readStatusLabel}
+                      </span>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </CardContent>
       </Card>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent size="xl">
-          <DialogHeader>
-            <DialogTitle>{draft.id ? '규칙 수정' : '규칙 추가'}</DialogTitle>
-          </DialogHeader>
-          <DialogBody className="max-h-[min(80vh,42rem)] space-y-4 overflow-y-auto">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>이름</Label>
-                <Input value={draft.name} disabled={busy} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
-              </div>
-              <label className="flex items-center gap-2 pt-6 text-sm">
-                <input
-                  type="checkbox"
-                  checked={draft.enabled}
-                  disabled={busy}
-                  onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))}
-                />
-                사용
-              </label>
-            </div>
-            <div className="space-y-1.5">
-              <Label>스케줄 유형</Label>
-              <select
-                className="h-9 w-full max-w-xs rounded-md border border-app-border bg-app-surface px-2 text-sm"
-                value={draft.scheduleType}
-                disabled={busy}
-                onChange={(e) => setDraft((d) => ({ ...d, scheduleType: e.target.value as ScheduleType }))}
-              >
-                <option value="DAILY">요일·시각 (DAILY)</option>
-                <option value="CRON">CRON</option>
-              </select>
-            </div>
-            {draft.scheduleType === 'DAILY' ? (
-              <>
-                <div className="space-y-1.5">
-                  <Label>시각 (HH:mm, Seoul)</Label>
-                  <Input value={draft.dailyTime} disabled={busy} onChange={(e) => setDraft((d) => ({ ...d, dailyTime: e.target.value }))} placeholder="09:00" />
-                </div>
-                <div className="space-y-2">
-                  <Label>요일</Label>
-                  <div className="flex flex-wrap gap-3">
-                    {WD_LABELS.map((lab, i) => (
-                      <label key={lab} className="flex items-center gap-1.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={draft.dailyDays[i]}
-                          disabled={busy}
-                          onChange={(e) => {
-                            const next = [...draft.dailyDays];
-                            next[i] = e.target.checked;
-                            setDraft((d) => ({ ...d, dailyDays: next }));
-                          }}
-                        />
-                        {lab}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="space-y-1.5">
-                <Label>CRON 표현</Label>
-                <Input
-                  value={draft.cronExpression}
-                  disabled={busy}
-                  onChange={(e) => setDraft((d) => ({ ...d, cronExpression: e.target.value }))}
-                  placeholder="0 9 * * *"
-                />
-                <p className="text-xs text-app-muted">5필드 또는 6필드. 서버가 5필드면 앞에 초 0을 붙입니다.</p>
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label>수신 이메일 (줄바꿈·쉼표·세미콜론 구분)</Label>
-              <textarea
-                className="min-h-[5rem] w-full rounded-md border border-app-border bg-app-surface p-2 text-sm"
-                value={draft.toText}
-                disabled={busy}
-                onChange={(e) => setDraft((d) => ({ ...d, toText: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>제목 (비우면 메뉴 기본 제목 사용)</Label>
-              <Input value={draft.subject} disabled={busy} onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>본문 (비우면 메뉴 기본 본문 사용)</Label>
-              <textarea
-                className="min-h-[8rem] w-full rounded-md border border-app-border bg-app-surface p-2 text-sm"
-                value={draft.body}
-                disabled={busy}
-                onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>메일발송메뉴 (선택)</Label>
-              <select
-                className="h-9 w-full max-w-md rounded-md border border-app-border bg-app-surface px-2 text-sm"
-                value={draft.mailMenuId}
-                disabled={busy}
-                onChange={(e) => setDraft((d) => ({ ...d, mailMenuId: e.target.value }))}
-              >
-                <option value="">(없음)</option>
-                {menus.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label} ({m.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </DialogBody>
-          <DialogFooter className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => setDialogOpen(false)}>
-              취소
-            </Button>
-            <Button type="button" variant="primary" size="sm" disabled={busy} loading={busy} onClick={() => void saveDraft()}>
-              저장
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

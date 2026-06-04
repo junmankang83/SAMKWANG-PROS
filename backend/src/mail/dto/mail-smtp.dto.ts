@@ -1,7 +1,25 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, MaxLength, Min, Max } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 
-export class UpsertMailSmtpDto {
+export class CreateMailSmtpProfileDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  name!: string;
+
   @IsString()
   @MaxLength(255)
   host!: string;
@@ -19,7 +37,6 @@ export class UpsertMailSmtpDto {
   @MaxLength(255)
   user!: string;
 
-  /** 비워 두면 기존 비밀번호 유지 */
   @IsOptional()
   @IsString()
   @MaxLength(500)
@@ -33,10 +50,69 @@ export class UpsertMailSmtpDto {
   @IsEmail()
   @MaxLength(255)
   fromAddress!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+}
+
+export class UpdateMailSmtpProfileDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  host?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  port?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  secure?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  user?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  password?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  fromName?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsEmail()
+  @MaxLength(255)
+  fromAddress?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
 }
 
 export class MailSmtpTestDto {
-  @IsEmail()
-  @MaxLength(255)
-  to!: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @IsEmail({}, { each: true })
+  toAddresses!: string[];
 }

@@ -4,6 +4,11 @@ export type AppMenuItem = {
   disabled?: boolean;
   /** Iconify icon id (예: `mdi:home`) */
   icon?: string;
+  /**
+   * true: 메일 도메인에서만 사용. 메뉴관리 API로 받은 목록을 아코디언 하위 링크로 표시.
+   * href는 상위 경로(예: `/app/mail/sending-menu`)로 유지.
+   */
+  mailMenuAccordion?: boolean;
 };
 
 export type AppDomainMenu = {
@@ -60,9 +65,10 @@ export const APP_DOMAINS: AppDomainMenu[] = [
     icon: 'mdi:email-send-outline',
     items: [
       { label: '메일설정', href: '/app/mail/settings', icon: 'mdi:email-outline' },
-      { label: '메일발송메뉴관리', href: '/app/mail/sending-menu-admin', icon: 'mdi:playlist-edit' },
+      { label: '메뉴관리', href: '/app/mail/menu-admin', icon: 'mdi:book-cog-outline' },
+      { label: '메일발송관리', href: '/app/mail/sending-menu-admin', icon: 'mdi:playlist-edit' },
       { label: '메일발송정보', href: '/app/mail/sending-info', icon: 'mdi:card-account-details-outline' },
-      { label: '메일발송메뉴', href: '/app/mail/sending-menu', icon: 'mdi:email-multiple-outline' },
+      { label: '메일발송메뉴현황', href: '/app/mail/sending-menu', icon: 'mdi:email-multiple-outline', mailMenuAccordion: true },
     ],
   },
 ];

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { MailRuleService } from './mail-rule.service';
-import { CreateMailSendRuleDto, UpdateMailSendRuleDto } from './dto/mail-rule.dto';
+import { CreateMailSendRuleDto, ManualSendDto, UpdateMailSendRuleDto } from './dto/mail-rule.dto';
 
 @Controller('mail/rules')
 export class MailRuleController {
@@ -25,6 +25,11 @@ export class MailRuleController {
   @Post()
   create(@Body() dto: CreateMailSendRuleDto) {
     return this.rules.create(dto);
+  }
+
+  @Post(':id/send-now')
+  sendNow(@Param('id') id: string, @Body() dto: ManualSendDto) {
+    return this.rules.sendNow(id, dto);
   }
 
   @Patch(':id')
