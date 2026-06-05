@@ -271,6 +271,8 @@ export class MailRuleService {
         mailHtmlStructuredIntro: report.mailHtmlStructuredIntro,
         mailHtmlTableFragment: report.mailHtmlTableFragment,
         openPixelUrl,
+        mailHtmlBannerTitle: menu.label.trim() || subject,
+        mailHtmlBannerSendAt: sendAt,
         smtp: {
           host: cfg.host,
           port: cfg.port,
@@ -282,6 +284,7 @@ export class MailRuleService {
       try {
         await createMailSendLogWithColumnFallback(this.prisma, this.logger, {
           ruleId: rule.id,
+          sentAt: new Date(),
           status: MailSendLogStatus.SUCCESS,
           errorMessage: null,
           smtpMessageId: res.messageId ?? null,
@@ -306,6 +309,7 @@ export class MailRuleService {
       try {
         await createMailSendLogWithColumnFallback(this.prisma, this.logger, {
           ruleId: rule.id,
+          sentAt: new Date(),
           status: MailSendLogStatus.FAILURE,
           errorMessage: msg,
           smtpMessageId: null,

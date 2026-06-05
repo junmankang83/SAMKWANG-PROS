@@ -42,7 +42,6 @@ export type TslInvoiceItemRow = {
 };
 
 type SqlRow = {
-  RowNo: number;
   BizUnit: number | null;
   InvoiceNoFmt: string | null;
   InvoiceDateRaw: string | null;
@@ -100,9 +99,8 @@ function toNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function mapRow(r: SqlRow): TslInvoiceItemRow {
+function mapRow(r: SqlRow): Omit<TslInvoiceItemRow, 'rowNo'> {
   return {
-    rowNo: r.RowNo,
     bizUnit: r.BizUnit == null ? null : Number(r.BizUnit),
     invoiceNo: trimOrNull(r.InvoiceNoFmt),
     invoiceDate: yyyymmddToIso(r.InvoiceDateRaw),
@@ -144,11 +142,26 @@ const MAX_RANGE_DAYS = 400;
 /** `_TSLInvoice.SMExpKind` 가 이 값이면 수출 등으로 조회 대상에서 제외 */
 const EXCLUDED_SM_EXP_KIND = '8009004';
 
+type TslInvoiceSqlFragments = {
+  /** SELECT 절에 붙는 식(별칭 포함) */
+  lineRemarkSelect: string;
+  lineMemoSelect: string;
+  inspectionSelect: string;
+  /** SELECT: 단가 식(별칭 LineUnitPrice) */
+  lineUnitPriceExpr: string;
+  currNameSelect: string;
+  currNoSelect: string;
+  /** WHERE 절에 `AND (...)` 형태로 붙임(항상 참이 될 수 있음) */
+  smExpKindPredicate: string;
+};
+
 @Injectable()
 export class ErpTslInvoiceItemsService {
   private readonly logger = new Logger(ErpTslInvoiceItemsService.name);
   private pool: mssql.ConnectionPool | null = null;
   private poolPromise: Promise<mssql.ConnectionPool> | null = null;
+  /** 첫 조회 시 ERP 스키마에 맞춘 SQL 조각(캐시) */
+  private tslSqlFragments: TslInvoiceSqlFragments | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -199,6 +212,7 @@ export class ErpTslInvoiceItemsService {
     })().catch((err) => {
       this.poolPromise = null;
       this.pool = null;
+      this.tslSqlFragments = null;
       this.logger.error('ERP MSSQL connection failed', err);
       throw new ServiceUnavailableException(
         'ERP 데이터베이스에 연결할 수 없습니다. 네트워크 및 접속 정보를 확인하세요.',
@@ -206,6 +220,92 @@ export class ErpTslInvoiceItemsService {
     });
 
     return this.poolPromise;
+  }
+
+  /**
+   * ERP별로 `_TSLInvoice` / `_TSLInvoiceItem` 컬럼명이 다를 수 있어 INFORMATION_SCHEMA로 감지합니다.
+   * 없는 컬럼을 참조하면 SQL Server가 500에 가까운 오류를 내는 경우가 많아, 안전한 대체 식을 씁니다.
+   */
+  private async resolveTslSqlFragments(pool: mssql.ConnectionPool): Promise<TslInvoiceSqlFragments> {
+    if (this.tslSqlFragments) {
+      return this.tslSqlFragments;
+    }
+    const meta = await pool.request().query<{ TABLE_NAME: string; COLUMN_NAME: string }>(`
+      SELECT UPPER(c.TABLE_NAME) AS TABLE_NAME, UPPER(c.COLUMN_NAME) AS COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS c
+      WHERE c.TABLE_SCHEMA = N'dbo'
+        AND c.TABLE_NAME IN (N'_TSLInvoice', N'_TSLInvoiceItem', N'_TDACurr')
+    `);
+    const set = new Set<string>();
+    for (const r of meta.recordset ?? []) {
+      set.add(`${r.TABLE_NAME}|${r.COLUMN_NAME}`);
+    }
+    const has = (table: string, col: string): boolean =>
+      set.has(`${table.toUpperCase()}|${col.toUpperCase()}`);
+
+    const lineRemarkSelect = has('_TSLInvoiceItem', 'Remark')
+      ? 'i.Remark AS LineRemark'
+      : has('_TSLInvoiceItem', 'LineRemark')
+        ? 'i.LineRemark AS LineRemark'
+        : 'CAST(NULL AS nvarchar(max)) AS LineRemark';
+    const lineMemoSelect = has('_TSLInvoiceItem', 'Memo')
+      ? 'i.Memo AS LineMemo'
+      : 'CAST(NULL AS nvarchar(max)) AS LineMemo';
+
+    let inspectionSelect: string;
+    if (has('_TSLInvoiceItem', 'IsInspection')) {
+      inspectionSelect = 'i.IsInspection AS IsInspection';
+    } else if (has('_TSLInvoice', 'IsInspection')) {
+      inspectionSelect = 'h.IsInspection AS IsInspection';
+    } else {
+      inspectionSelect = 'CAST(NULL AS nvarchar(50)) AS IsInspection';
+    }
+
+    const smExpKindPredicate = has('_TSLInvoice', 'SMExpKind')
+      ? '(h.SMExpKind IS NULL OR LTRIM(RTRIM(CAST(h.SMExpKind AS NVARCHAR(50)))) <> @excludeSmExpKind)'
+      : '(1 = 1)';
+
+    const priceBits: string[] = [];
+    if (has('_TSLInvoiceItem', 'CustPrice')) {
+      priceBits.push('NULLIF(i.CustPrice, 0)');
+    }
+    if (has('_TSLInvoiceItem', 'ItemPrice')) {
+      priceBits.push('NULLIF(i.ItemPrice, 0)');
+    }
+    if (has('_TSLInvoiceItem', 'Price')) {
+      priceBits.push('i.Price');
+    }
+    let lineUnitPriceExpr: string;
+    if (priceBits.length === 0) {
+      lineUnitPriceExpr = 'CAST(NULL AS decimal(18, 4))';
+    } else if (priceBits.length === 1) {
+      lineUnitPriceExpr = priceBits[0];
+    } else {
+      lineUnitPriceExpr = `COALESCE(${priceBits.join(', ')})`;
+    }
+
+    const currNameSelect = has('_TDACurr', 'CurrName')
+      ? 'curr.CurrName AS CurrName'
+      : 'CAST(NULL AS nvarchar(100)) AS CurrName';
+    const currNoSelect = has('_TDACurr', 'CurrNo')
+      ? 'curr.CurrNo AS CurrNo'
+      : 'CAST(NULL AS nvarchar(50)) AS CurrNo';
+
+    this.tslSqlFragments = {
+      lineRemarkSelect,
+      lineMemoSelect,
+      inspectionSelect,
+      smExpKindPredicate,
+      lineUnitPriceExpr,
+      currNameSelect,
+      currNoSelect,
+    };
+    this.logger.log(
+      `TSL invoice SQL: Remark=${has('_TSLInvoiceItem', 'Remark')} Memo=${has('_TSLInvoiceItem', 'Memo')} ` +
+        `IsInspection=${has('_TSLInvoiceItem', 'IsInspection') ? 'item' : has('_TSLInvoice', 'IsInspection') ? 'hdr' : 'none'} ` +
+        `SMExpKind=${has('_TSLInvoice', 'SMExpKind')} priceCols=${priceBits.length}`,
+    );
+    return this.tslSqlFragments;
   }
 
   private parseOptionalPositiveInt(envKey: string, label: string): number | null {
@@ -276,6 +376,7 @@ export class ErpTslInvoiceItemsService {
     const bizUnitFilter = this.parseOptionalPositiveInt('ERP_TSL_INVOICE_BIZ_UNIT', 'ERP_TSL_INVOICE_BIZ_UNIT');
 
     const pool = await this.getPool();
+    const frag = await this.resolveTslSqlFragments(pool);
     const request = pool.request();
     request.input('fromYmd', mssql.Char(8), fromYmd);
     request.input('toYmd', mssql.Char(8), toYmd);
@@ -297,11 +398,10 @@ export class ErpTslInvoiceItemsService {
     }
     const whereTail = whereExtra.length ? ` AND ${whereExtra.join(' AND ')}` : '';
 
-    const result = await request.query<SqlRow>(`
+    let result: mssql.IResult<SqlRow>;
+    try {
+      result = await request.query<SqlRow>(`
       SELECT TOP (@fetchCount)
-        ROW_NUMBER() OVER (
-          ORDER BY LTRIM(RTRIM(h.InvoiceDate)) ASC, h.CompanySeq ASC, h.InvoiceSeq ASC, i.InvoiceSerl ASC
-        ) AS RowNo,
         h.BizUnit AS BizUnit,
         CASE
           WHEN LEN(LTRIM(RTRIM(h.InvoiceNo))) = 10 AND LTRIM(RTRIM(h.InvoiceNo)) NOT LIKE N'%-%'
@@ -321,7 +421,7 @@ export class ErpTslInvoiceItemsService {
         u.UnitName AS UnitName,
         uStd.UnitName AS StdUnitName,
         i.Qty AS Qty,
-        COALESCE(NULLIF(i.CustPrice, 0), NULLIF(i.ItemPrice, 0), i.Price) AS LineUnitPrice,
+        ${frag.lineUnitPriceExpr} AS LineUnitPrice,
         i.DomAmt AS DomAmt,
         i.DomVAT AS DomVAT,
         CAST(ISNULL(i.DomAmt, 0) + ISNULL(i.DomVAT, 0) AS decimal(18, 4)) AS LineTotal,
@@ -331,13 +431,13 @@ export class ErpTslInvoiceItemsService {
         END AS ForeignUnitPrice,
         i.CurAmt AS CurAmt,
         h.ExRate AS ExRate,
-        curr.CurrName AS CurrName,
-        curr.CurrNo AS CurrNo,
-        i.Remark AS LineRemark,
-        i.Memo AS LineMemo,
+        ${frag.currNameSelect},
+        ${frag.currNoSelect},
+        ${frag.lineRemarkSelect},
+        ${frag.lineMemoSelect},
         pjt.PJTNo AS PJTNo,
         pjt.PJTName AS PJTName,
-        h.IsInspection AS IsInspection,
+        ${frag.inspectionSelect},
         i.DVPlaceSeq AS InWHSeq,
         whIn.WHName AS InWHName,
         i.LotNo AS LotNo,
@@ -369,19 +469,21 @@ export class ErpTslInvoiceItemsService {
         ON h.CompanySeq = curr.CompanySeq AND h.CurrSeq = curr.CurrSeq
       WHERE LTRIM(RTRIM(h.InvoiceDate)) >= @fromYmd
         AND LTRIM(RTRIM(h.InvoiceDate)) <= @toYmd
-        AND (
-          h.SMExpKind IS NULL
-          OR LTRIM(RTRIM(CAST(h.SMExpKind AS NVARCHAR(50)))) <> @excludeSmExpKind
-        )
+        AND ${frag.smExpKindPredicate}
         ${whereTail}
       ORDER BY LTRIM(RTRIM(h.InvoiceDate)) ASC, h.CompanySeq ASC, h.InvoiceSeq ASC, i.InvoiceSerl ASC
     `);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`TSL invoice items query failed: ${msg}`);
+      throw new BadRequestException(`ERP 거래명세 품목 조회에 실패했습니다. (${msg})`);
+    }
 
     const raw = result.recordset ?? [];
     const truncated = raw.length > maxRows;
     const slice = truncated ? raw.slice(0, maxRows) : raw;
     return {
-      items: slice.map((r) => mapRow(r)),
+      items: slice.map((r, i) => ({ ...mapRow(r), rowNo: i + 1 })),
       truncated,
     };
   }

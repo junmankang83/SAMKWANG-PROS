@@ -302,7 +302,6 @@ export function SparePartsInbound() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-app-text">부품입고</h1>
-          <p className="mt-1 text-sm text-app-muted">부품별 입고 수량과 일시를 등록·조회합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <FormField label="입고시작일자">

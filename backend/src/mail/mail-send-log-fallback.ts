@@ -20,6 +20,7 @@ async function insertMailMenuSendLogRaw(
   execUnsafe: RawCapable['$executeRawUnsafe'],
   row: {
     mailMenuId: string;
+    sentAt: Date;
     status: MailSendLogStatus;
     errorMessage: string | null;
     smtpMessageId: string | null;
@@ -31,9 +32,10 @@ async function insertMailMenuSendLogRaw(
 ): Promise<void> {
   const id = randomUUID();
   await execUnsafe(
-    `INSERT INTO "MailMenuSendLog" ("id", "mailMenuId", "sentAt", "status", "errorMessage", "smtpMessageId") VALUES ($1::text, $2::text, NOW(), $3::"MailSendLogStatus", $4::text, $5::text)`,
+    `INSERT INTO "MailMenuSendLog" ("id", "mailMenuId", "sentAt", "status", "errorMessage", "smtpMessageId") VALUES ($1::text, $2::text, $3::timestamptz, $4::"MailSendLogStatus", $5::text, $6::text)`,
     id,
     row.mailMenuId,
+    row.sentAt.toISOString(),
     row.status,
     row.errorMessage,
     row.smtpMessageId,
@@ -73,6 +75,7 @@ async function insertMailSendLogRaw(
   execUnsafe: RawCapable['$executeRawUnsafe'],
   row: {
     ruleId: string;
+    sentAt: Date;
     status: MailSendLogStatus;
     errorMessage: string | null;
     smtpMessageId: string | null;
@@ -84,9 +87,10 @@ async function insertMailSendLogRaw(
 ): Promise<void> {
   const id = randomUUID();
   await execUnsafe(
-    `INSERT INTO "MailSendLog" ("id", "ruleId", "sentAt", "status", "errorMessage", "smtpMessageId") VALUES ($1::text, $2::text, NOW(), $3::"MailSendLogStatus", $4::text, $5::text)`,
+    `INSERT INTO "MailSendLog" ("id", "ruleId", "sentAt", "status", "errorMessage", "smtpMessageId") VALUES ($1::text, $2::text, $3::timestamptz, $4::"MailSendLogStatus", $5::text, $6::text)`,
     id,
     row.ruleId,
+    row.sentAt.toISOString(),
     row.status,
     row.errorMessage,
     row.smtpMessageId,
@@ -146,6 +150,7 @@ export async function createMailMenuSendLogWithColumnFallback(
   logger: Logger,
   row: {
     mailMenuId: string;
+    sentAt: Date;
     status: MailSendLogStatus;
     errorMessage: string | null;
     smtpMessageId: string | null;
@@ -155,6 +160,7 @@ export async function createMailMenuSendLogWithColumnFallback(
 ): Promise<void> {
   const minimal: Prisma.MailMenuSendLogUncheckedCreateInput = {
     mailMenuId: row.mailMenuId,
+    sentAt: row.sentAt,
     status: row.status,
     errorMessage: row.errorMessage,
     smtpMessageId: row.smtpMessageId,
@@ -218,6 +224,7 @@ export async function createMailSendLogWithColumnFallback(
   logger: Logger,
   row: {
     ruleId: string;
+    sentAt: Date;
     status: MailSendLogStatus;
     errorMessage: string | null;
     smtpMessageId: string | null;
@@ -227,6 +234,7 @@ export async function createMailSendLogWithColumnFallback(
 ): Promise<void> {
   const minimal: Prisma.MailSendLogUncheckedCreateInput = {
     ruleId: row.ruleId,
+    sentAt: row.sentAt,
     status: row.status,
     errorMessage: row.errorMessage,
     smtpMessageId: row.smtpMessageId,

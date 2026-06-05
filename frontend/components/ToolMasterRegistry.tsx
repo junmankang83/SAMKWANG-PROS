@@ -434,9 +434,6 @@ export function ToolMasterRegistry() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-app-text">설비정보관리</h1>
-          <p className="mt-1 text-sm text-app-muted">
-            사출기 등 설비 기준정보를 등록·관리합니다. 부품정보·입고 시 사출기로 선택됩니다.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <FormField label="검색">

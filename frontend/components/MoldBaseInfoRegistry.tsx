@@ -654,11 +654,6 @@ export function MoldBaseInfoRegistry() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-app-text">기준정보관리</h1>
-        <p className="mt-1 text-sm text-app-muted">
-          설비관리용 상·하위 코드를 등록합니다. 왼쪽에서 행을 선택해 편집하고, 저장된 행을{' '}
-          <span className="font-medium text-app-text">더블클릭</span>하면 오른쪽에서 하위 코드를
-          조회·등록할 수 있습니다.
-        </p>
       </div>
 
       {loadError ? (

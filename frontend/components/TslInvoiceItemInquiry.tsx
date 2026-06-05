@@ -7,11 +7,9 @@ import {
   Button,
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
 } from '@samkwang/ui-kit';
+import { EIS_TABLE_SCROLL_WRAP, EIS_TD, EIS_TD_LEFT, EIS_TD_NUM, EIS_TH } from '@/lib/eis-report-table-classes';
 import { useCallback, useMemo, useState } from 'react';
 
 /** 엑셀(거래명세서품목조회) 컬럼 순서와 동일 */
@@ -84,13 +82,6 @@ function cellText(v: string | null | undefined): string {
   return v;
 }
 
-const TH =
-  'whitespace-nowrap border border-emerald-800/40 bg-emerald-600 px-1.5 py-2 text-center text-[11px] font-semibold text-white';
-/** 품명 제외 전열 가운데 정렬 */
-const TD = 'whitespace-nowrap border border-app-border px-1.5 py-1 text-center text-[11px] text-app-text';
-const TD_ITEM_NAME =
-  'whitespace-nowrap border border-app-border px-1.5 py-1 text-left text-[11px] text-app-text';
-
 export type TslInvoiceItemInquiryProps = {
   embedded?: boolean;
 };
@@ -108,6 +99,7 @@ export function TslInvoiceItemInquiry({ embedded = false }: TslInvoiceItemInquir
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<TslInvoiceItemRow[]>([]);
   const [truncated, setTruncated] = useState(false);
+  const [hasFetched, setHasFetched] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -129,6 +121,7 @@ export function TslInvoiceItemInquiry({ embedded = false }: TslInvoiceItemInquir
       setTruncated(false);
       setError('네트워크 오류로 조회에 실패했습니다.');
     } finally {
+      setHasFetched(true);
       setLoading(false);
     }
   }, [from, to]);
@@ -136,27 +129,6 @@ export function TslInvoiceItemInquiry({ embedded = false }: TslInvoiceItemInquir
   return (
     <div className={embedded ? 'flex flex-col gap-3' : 'flex flex-col gap-4 p-4'}>
       <Card className={embedded ? 'border-app-border shadow-card' : 'border-app-border shadow-none'}>
-        <CardHeader className="pb-2">
-          {embedded ? (
-            <>
-              <CardTitle className="text-base">조회 데이터</CardTitle>
-              <CardDescription className="text-xs">
-                엑셀 양식과 동일한 열 순서입니다. ERP와 범위를 맞추려면{' '}
-                <code className="rounded bg-app-muted/20 px-0.5">ERP_TSL_INVOICE_COMPANY_SEQ</code> 등을 설정하세요.
-              </CardDescription>
-            </>
-          ) : (
-            <>
-              <CardTitle className="text-lg">거래명세서 품목 조회</CardTitle>
-              <CardDescription>
-                엑셀 기준 컬럼(순번·사업장·거래명세서번호·일자·거래처·창고·품목·금액·외화·프로젝트·LOT 등). 일자 구간을
-                선택한 뒤 조회하세요. 환경 변수{' '}
-                <code className="rounded bg-app-muted/20 px-1">ERP_TSL_INVOICE_COMPANY_SEQ</code>
-                로 법인을 한정할 수 있습니다.
-              </CardDescription>
-            </>
-          )}
-        </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex w-full flex-wrap items-end justify-end gap-2 sm:gap-3">
               <label className="flex shrink-0 flex-col gap-0.5">
@@ -206,88 +178,72 @@ export function TslInvoiceItemInquiry({ embedded = false }: TslInvoiceItemInquir
             </Alert>
           ) : null}
 
-          <div className="max-h-[min(70vh,720px)] overflow-auto rounded-md border border-app-border">
+          <div className={EIS_TABLE_SCROLL_WRAP}>
             <table className="min-w-max border-collapse">
-              <thead className="sticky top-0 z-10 shadow-sm">
+              <thead className="sticky top-0 z-10 bg-[#E7E6E6]">
                 <tr>
-                  <th className={TH}>순번</th>
-                  <th className={TH}>사업장</th>
-                  <th className={TH}>거래명세서번호</th>
-                  <th className={TH}>거래명세서일자</th>
-                  <th className={TH}>거래처코드</th>
-                  <th className={TH}>거래처명</th>
-                  <th className={TH}>출고창고</th>
-                  <th className={TH}>출고창고명</th>
-                  <th className={TH}>담당자</th>
-                  <th className={TH}>담당부서</th>
-                  <th className={TH}>품번</th>
-                  <th className={TH}>품명</th>
-                  <th className={TH}>규격</th>
-                  <th className={TH}>단위</th>
-                  <th className={TH}>관리단위</th>
-                  <th className={TH}>수량</th>
-                  <th className={TH}>단가</th>
-                  <th className={TH}>공급가액</th>
-                  <th className={TH}>부가세</th>
-                  <th className={TH}>합계금액</th>
-                  <th className={TH}>외화단가</th>
-                  <th className={TH}>외화금액</th>
-                  <th className={TH}>환율</th>
-                  <th className={TH}>통화</th>
-                  <th className={TH}>비고</th>
-                  <th className={TH}>프로젝트</th>
-                  <th className={TH}>프로젝트명</th>
-                  <th className={TH}>검사구분</th>
-                  <th className={TH}>입고창고</th>
-                  <th className={TH}>입고창고명</th>
-                  <th className={TH}>Lot No.</th>
-                  <th className={TH}>생산일자</th>
-                  <th className={TH}>유효일자</th>
+                  <th className={EIS_TH}>순번</th>
+                  <th className={EIS_TH}>사업장</th>
+                  <th className={EIS_TH}>거래명세서번호</th>
+                  <th className={EIS_TH}>거래명세서일자</th>
+                  <th className={EIS_TH}>거래처코드</th>
+                  <th className={EIS_TH}>거래처명</th>
+                  <th className={EIS_TH}>출고창고</th>
+                  <th className={EIS_TH}>출고창고명</th>
+                  <th className={EIS_TH}>담당자</th>
+                  <th className={EIS_TH}>담당부서</th>
+                  <th className={EIS_TH}>품번</th>
+                  <th className={EIS_TH}>품명</th>
+                  <th className={EIS_TH}>규격</th>
+                  <th className={EIS_TH}>단위</th>
+                  <th className={EIS_TH}>관리단위</th>
+                  <th className={EIS_TH}>수량</th>
+                  <th className={EIS_TH}>단가</th>
+                  <th className={EIS_TH}>공급가액</th>
+                  <th className={EIS_TH}>부가세</th>
+                  <th className={EIS_TH}>합계금액</th>
+                  <th className={EIS_TH}>외화단가</th>
+                  <th className={EIS_TH}>외화금액</th>
+                  <th className={EIS_TH}>환율</th>
+                  <th className={EIS_TH}>통화</th>
+                  <th className={EIS_TH}>비고</th>
                 </tr>
               </thead>
               <tbody>
                 {items.length === 0 && !loading ? (
                   <tr>
-                    <td className={TD} colSpan={33}>
-                      {error ? '—' : '조회 결과가 없습니다. 일자를 선택한 뒤 조회를 누르세요.'}
+                    <td className={EIS_TD} colSpan={25}>
+                      {error ? '—' : hasFetched ? '당일 등록된 실적이 없습니다.' : '조회 결과가 없습니다. 일자를 선택한 뒤 조회를 누르세요.'}
                     </td>
                   </tr>
                 ) : null}
                 {items.map((r) => (
-                  <tr key={String(r.rowNo)} className="odd:bg-app-surface-02/60">
-                    <td className={TD}>{r.rowNo}</td>
-                    <td className={`${TD} tabular-nums`}>{r.bizUnit ?? ''}</td>
-                    <td className={TD}>{cellText(r.invoiceNo)}</td>
-                    <td className={TD}>{cellText(r.invoiceDate)}</td>
-                    <td className={TD}>{cellText(r.customerCode)}</td>
-                    <td className={TD}>{cellText(r.customerName)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.outboundWhCode)}</td>
-                    <td className={TD}>{cellText(r.outboundWhName)}</td>
-                    <td className={TD}>{cellText(r.chargePersonName)}</td>
-                    <td className={TD}>{cellText(r.chargeDeptName)}</td>
-                    <td className={TD}>{cellText(r.itemNo)}</td>
-                    <td className={TD_ITEM_NAME}>{cellText(r.itemName)}</td>
-                    <td className={TD}>{cellText(r.spec)}</td>
-                    <td className={TD}>{cellText(r.unit)}</td>
-                    <td className={TD}>{cellText(r.managementUnit)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.qty)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.unitPrice)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.supplyAmount)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.vatAmount)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.totalAmount)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.foreignUnitPrice)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.foreignAmount)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.exchangeRate)}</td>
-                    <td className={TD}>{cellText(r.currencyName)}</td>
-                    <td className={TD}>{cellText(r.remark)}</td>
-                    <td className={TD}>{cellText(r.projectCode)}</td>
-                    <td className={TD}>{cellText(r.projectName)}</td>
-                    <td className={TD}>{cellText(r.inspectionKind)}</td>
-                    <td className={`${TD} tabular-nums`}>{formatNumber(r.inboundWhCode)}</td>
-                    <td className={TD}>{cellText(r.inboundWhName)}</td>
-                    <td className={TD}>{cellText(r.lotNo)}</td>
-                    <td className={TD}>{cellText(r.productionDate)}</td>
-                    <td className={TD}>{cellText(r.expiryDate)}</td>
+                  <tr key={String(r.rowNo)}>
+                    <td className={EIS_TD_NUM}>{r.rowNo}</td>
+                    <td className={EIS_TD_NUM}>{r.bizUnit ?? ''}</td>
+                    <td className={EIS_TD}>{cellText(r.invoiceNo)}</td>
+                    <td className={EIS_TD}>{cellText(r.invoiceDate)}</td>
+                    <td className={EIS_TD}>{cellText(r.customerCode)}</td>
+                    <td className={EIS_TD}>{cellText(r.customerName)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.outboundWhCode)}</td>
+                    <td className={EIS_TD}>{cellText(r.outboundWhName)}</td>
+                    <td className={EIS_TD}>{cellText(r.chargePersonName)}</td>
+                    <td className={EIS_TD}>{cellText(r.chargeDeptName)}</td>
+                    <td className={EIS_TD}>{cellText(r.itemNo)}</td>
+                    <td className={EIS_TD_LEFT}>{cellText(r.itemName)}</td>
+                    <td className={EIS_TD}>{cellText(r.spec)}</td>
+                    <td className={EIS_TD}>{cellText(r.unit)}</td>
+                    <td className={EIS_TD}>{cellText(r.managementUnit)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.qty)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.unitPrice)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.supplyAmount)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.vatAmount)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.totalAmount)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.foreignUnitPrice)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.foreignAmount)}</td>
+                    <td className={EIS_TD_NUM}>{formatNumber(r.exchangeRate)}</td>
+                    <td className={EIS_TD}>{cellText(r.currencyName)}</td>
+                    <td className={EIS_TD}>{cellText(r.remark)}</td>
                   </tr>
                 ))}
               </tbody>

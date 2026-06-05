@@ -175,6 +175,8 @@ export class MailSmtpService {
         to,
         subject: '[SAMKWANG-PROS] SMTP 테스트',
         text: `이 메일은 SAMKWANG-PROS SMTP 연결 테스트입니다.\n프로필 ID: ${profileId}\n수신: ${to.join(', ')}\n발송 시각(서버): ${new Date().toISOString()}\n`,
+        mailHtmlBannerTitle: 'SAMKWANG-PROS SMTP 연결 테스트',
+        mailHtmlBannerSendAt: new Date(),
         smtp: {
           host: cfg.host,
           port: cfg.port,

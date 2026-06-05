@@ -7,6 +7,8 @@ import * as mssql from 'mssql';
  * `dbo._TPUDelvIn` + 라인 테이블(`_TPUDelvInItem` 또는 `TPUDelvInItem`) — 컬럼명은 INFORMATION_SCHEMA로 자동 감지합니다.
  */
 export type PuDelvInItemRow = {
+  /** 조회 결과 표시 순번(1부터) */
+  rowNo: number;
   bizUnit: number | null;
   receiptDate: string;
   receiptNo: string | null;
@@ -126,7 +128,7 @@ function toNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function mapRow(r: SqlRow): PuDelvInItemRow {
+function mapRow(r: SqlRow): Omit<PuDelvInItemRow, 'rowNo'> {
   return {
     bizUnit: r.BizUnit == null ? null : Number(r.BizUnit),
     receiptDate: yyyymmddToIso(r.DelvInDateRaw),
@@ -724,7 +726,7 @@ export class ErpPuDelvInItemsService {
     const truncated = raw.length > maxRows;
     const slice = truncated ? raw.slice(0, maxRows) : raw;
     return {
-      items: slice.map((r) => mapRow(r)),
+      items: slice.map((r, i) => ({ ...mapRow(r), rowNo: i + 1 })),
       truncated,
     };
   }

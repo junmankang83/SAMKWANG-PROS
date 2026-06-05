@@ -203,6 +203,8 @@ export class MailMenuService {
         mailHtmlStructuredIntro: report.mailHtmlStructuredIntro,
         mailHtmlTableFragment: report.mailHtmlTableFragment,
         openPixelUrl,
+        mailHtmlBannerTitle: menu.label.trim() || subject,
+        mailHtmlBannerSendAt: sendAt,
         smtp: {
           host: cfg.host,
           port: cfg.port,
@@ -214,6 +216,7 @@ export class MailMenuService {
       try {
         await createMailMenuSendLogWithColumnFallback(this.prisma, this.logger, {
           mailMenuId: menu.id,
+          sentAt: new Date(),
           status: MailSendLogStatus.SUCCESS,
           errorMessage: null,
           smtpMessageId: res.messageId ?? null,
@@ -238,6 +241,7 @@ export class MailMenuService {
       try {
         await createMailMenuSendLogWithColumnFallback(this.prisma, this.logger, {
           mailMenuId: menu.id,
+          sentAt: new Date(),
           status: MailSendLogStatus.FAILURE,
           errorMessage: msg,
           smtpMessageId: null,

@@ -60,7 +60,6 @@ async function readApiError(res: Response): Promise<string> {
 
 type SparePartsInventoryProps = {
   title?: string;
-  description?: string;
   emptyMessage?: string;
   /** 시작일자~종료일자 (부품 입출고 대장) */
   filterMode?: 'month' | 'inboundDateRange' | 'asOfDate';
@@ -68,7 +67,6 @@ type SparePartsInventoryProps = {
 
 export function SparePartsInventory({
   title = '재고현황',
-  description = '부품입고·부품출고 내역을 합산해 입·출고 수량과 현재 재고를 표시합니다.',
   emptyMessage = '표시할 재고가 없습니다. 부품입고에서 입고를 등록하면 여기에 반영됩니다.',
   filterMode = 'month',
 }: SparePartsInventoryProps = {}) {
@@ -129,7 +127,6 @@ export function SparePartsInventory({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-app-text">{title}</h1>
-          <p className="mt-1 text-sm text-app-muted">{description}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {filterMode === 'asOfDate' ? (

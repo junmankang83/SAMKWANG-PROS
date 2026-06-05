@@ -181,6 +181,8 @@ export class MailSchedulerService {
         mailHtmlStructuredIntro: report.mailHtmlStructuredIntro,
         mailHtmlTableFragment: report.mailHtmlTableFragment,
         openPixelUrl,
+        mailHtmlBannerTitle: menu.label.trim() || subject,
+        mailHtmlBannerSendAt: sendAt,
         smtp: {
           host: cfg.host,
           port: cfg.port,
@@ -208,8 +210,10 @@ export class MailSchedulerService {
   ): Promise<void> {
     const snap = toSnapshot as unknown as Prisma.InputJsonValue;
     await this.prisma.$transaction(async (tx) => {
+      const sentAt = new Date();
       await createMailMenuSendLogWithColumnFallback(tx, this.logger, {
         mailMenuId,
+        sentAt,
         status,
         errorMessage,
         smtpMessageId,
@@ -246,6 +250,7 @@ export class MailSchedulerService {
     if (!subject) {
       subject = '(제목 없음)';
     }
+    const bannerTitle = rule.mailMenu?.label?.trim() || subject.trim() || '(제목 없음)';
     const sendAt = slot;
     subject = mailSubjectWithSeoulSendDate(subject, sendAt);
     let mailHtmlStructuredIntro: string | undefined;
@@ -273,6 +278,8 @@ export class MailSchedulerService {
         mailHtmlStructuredIntro,
         mailHtmlTableFragment,
         openPixelUrl,
+        mailHtmlBannerTitle: bannerTitle,
+        mailHtmlBannerSendAt: sendAt,
         smtp: {
           host: cfg.host,
           port: cfg.port,
@@ -300,8 +307,10 @@ export class MailSchedulerService {
   ): Promise<void> {
     const snap = toSnapshot as unknown as Prisma.InputJsonValue;
     await this.prisma.$transaction(async (tx) => {
+      const sentAt = new Date();
       await createMailSendLogWithColumnFallback(tx, this.logger, {
         ruleId,
+        sentAt,
         status,
         errorMessage,
         smtpMessageId,

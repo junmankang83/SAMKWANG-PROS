@@ -449,9 +449,6 @@ export function MoldInspectionRecordsRegistry() {
     <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-4">
       <div>
         <h1 className="text-xl font-semibold text-app-text">설비점검실적내역등록</h1>
-        <p className="mt-1 text-sm text-app-muted">
-          설비구분·연도를 선택하면 계획(읽기 전용)과 실적 주차를 나란히 확인할 수 있습니다. 실적·점검내용을 입력한 뒤 저장하세요. 계획은 「설비점검계획등록」에서 등록합니다.
-        </p>
       </div>
 
       {loadError ? (

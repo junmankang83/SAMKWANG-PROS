@@ -1,12 +1,18 @@
 'use client';
 
-import { Alert, AlertDescription, AlertTitle, Card, CardContent, CardHeader, CardTitle } from '@samkwang/ui-kit';
+import { Alert, AlertDescription, AlertTitle, Card, CardContent } from '@samkwang/ui-kit';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { isTslInvoiceItemsMailMenu } from '@/lib/mail/tsl-invoice-items-menu';
+import { isTslExportInvoiceItemsMailMenu } from '@/lib/mail/tsl-export-invoice-items-menu';
+import { isTslDvReqItemsMailMenu } from '@/lib/mail/tsl-dv-req-items-menu';
 import { isPuDelvInItemsMailMenu } from '@/lib/mail/pu-delv-in-items-menu';
+import { isPuDelvItemsMailMenu } from '@/lib/mail/pu-delv-items-menu';
 import { TslInvoiceItemInquiry } from '@/components/TslInvoiceItemInquiry';
+import { TslExportInvoiceItemInquiry } from '@/components/TslExportInvoiceItemInquiry';
+import { TslDvReqItemInquiry } from '@/components/TslDvReqItemInquiry';
 import { PuDelvInItemInquiry } from '@/components/PuDelvInItemInquiry';
+import { PuDelvItemInquiry } from '@/components/PuDelvItemInquiry';
 
 type MenuDetail = {
   id: string;
@@ -35,7 +41,7 @@ async function readApiError(res: Response): Promise<string> {
   return raw.trim().slice(0, 400) || `요청 실패 (${res.status})`;
 }
 
-/** 메일발송메뉴현황 — 개별 메뉴(거래명세서품목조회는 ERP 연동 UI, 그 외는 메뉴쿼리 플레이스홀더) */
+/** 메일발송메뉴현황 — 개별 메뉴(ERP 연동 메뉴는 전용 그리드, 그 외는 메뉴쿼리 플레이스홀더) */
 export function MailSendingMenuView() {
   const params = useParams();
   const menuId = typeof params.menuId === 'string' ? params.menuId : '';
@@ -108,35 +114,29 @@ export function MailSendingMenuView() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-app-text">{row.label}</h1>
-        <p className="mt-1 text-sm text-app-muted">
-          순번 {row.sortOrder} · 코드 <span className="font-mono text-xs">{row.code}</span>
-        </p>
       </div>
 
       {isTslInvoiceItemsMailMenu(row) ? (
         <TslInvoiceItemInquiry embedded />
+      ) : isTslExportInvoiceItemsMailMenu(row) ? (
+        <TslExportInvoiceItemInquiry embedded />
+      ) : isTslDvReqItemsMailMenu(row) ? (
+        <TslDvReqItemInquiry embedded />
+      ) : isPuDelvItemsMailMenu(row) ? (
+        <PuDelvItemInquiry embedded />
       ) : isPuDelvInItemsMailMenu(row) ? (
         <PuDelvInItemInquiry embedded />
       ) : (
         <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="text-base">조회 데이터</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-app-muted">
-            <p>
-              메뉴관리에 등록된 <strong className="text-app-text">메뉴쿼리</strong>를 실행해 얻은 결과를 이 영역에 표
-              형태로 넣을 예정입니다.
-            </p>
+          <CardContent className="p-4">
             {row.menuQuery.trim() ? (
               <details className="rounded-md border border-app-border bg-app-surface-02 p-3">
-                <summary className="cursor-pointer text-xs font-medium text-app-text">등록된 메뉴쿼리 미리보기</summary>
+                <summary className="cursor-pointer text-xs font-medium text-app-text">등록된 메뉴쿼리</summary>
                 <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-app-text">
                   {row.menuQuery}
                 </pre>
               </details>
-            ) : (
-              <p className="text-xs">등록된 메뉴쿼리가 없습니다. 메뉴관리에서 쿼리를 입력하세요.</p>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       )}

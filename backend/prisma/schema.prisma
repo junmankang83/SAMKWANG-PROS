@@ -270,8 +270,8 @@ model MailMenu {
   /// 메뉴 기준 자동 발송에 사용할 SMTP 프로필(비우면 연결된 규칙의 프로필 순)
   mailSmtpProfileId String?
   mailSmtpProfile    MailSmtpProfile? @relation(fields: [mailSmtpProfileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  /// 메뉴 기준 자동 발송 마지막 처리 분(UTC) — 중복 방지
-  lastMenuSendSlotUtc DateTime?
+  /// 메뉴 기준 자동 발송 마지막 처리 시각(절대시각, DB: TIMESTAMPTZ) — 중복 방지
+  lastMenuSendSlotUtc DateTime? @db.Timestamptz(3)
   /// 저장된 요일·시각에 스케줄러 자동 발송 사용 여부(끄면 시간이 와도 발송하지 않음)
   scheduleAutoSendEnabled Boolean @default(true)
   createdAt       DateTime @default(now())
@@ -288,7 +288,7 @@ model MailMenuSendLog {
   id             String            @id @default(cuid())
   mailMenuId     String
   mailMenu       MailMenu          @relation(fields: [mailMenuId], references: [id], onDelete: Cascade)
-  sentAt         DateTime          @default(now())
+  sentAt         DateTime          @default(now()) @db.Timestamptz(3)
   status         MailSendLogStatus
   errorMessage   String?           @db.Text
   smtpMessageId  String?           @db.VarChar(255)
@@ -297,7 +297,7 @@ model MailMenuSendLog {
   /// HTML 본문 내 추적 픽셀용 비밀 토큰(미설정 시 텍스트만 발송)
   openTrackingToken String?        @unique @db.VarChar(64)
   /// 수신 클라이언트가 픽셀 URL을 최초 요청한 시각(이미지 차단 시 기록 없음)
-  firstOpenedAt  DateTime?
+  firstOpenedAt  DateTime?        @db.Timestamptz(3)
   openCount      Int               @default(0)
 
   @@index([mailMenuId, sentAt])
@@ -323,8 +323,8 @@ model MailSendRule {
   mailMenu       MailMenu?        @relation(fields: [mailMenuId], references: [id], onDelete: SetNull)
   mailSmtpProfileId String
   mailSmtpProfile   MailSmtpProfile @relation(fields: [mailSmtpProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  /// 마지막으로 발송 처리한 분 슬롯(UTC) — 중복 방지
-  lastRunSlotUtc DateTime?
+  /// 마지막으로 발송 처리한 시각(절대시각, DB: TIMESTAMPTZ) — 중복 방지
+  lastRunSlotUtc DateTime? @db.Timestamptz(3)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -340,14 +340,14 @@ model MailSendLog {
   id            String            @id @default(cuid())
   ruleId        String
   rule          MailSendRule      @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  sentAt        DateTime          @default(now())
+  sentAt        DateTime          @default(now()) @db.Timestamptz(3)
   status        MailSendLogStatus
   errorMessage  String?           @db.Text
   smtpMessageId String?           @db.VarChar(255)
   /// 발송 시점 수신자 목록(JSON 문자열 배열)
   toAddressesSnapshot Json?
   openTrackingToken String?       @unique @db.VarChar(64)
-  firstOpenedAt DateTime?
+  firstOpenedAt DateTime?        @db.Timestamptz(3)
   openCount     Int               @default(0)
 
   @@index([ruleId, sentAt])

@@ -372,9 +372,6 @@ export function MoldAnnualInspectionPlanReport({ user }: MoldAnnualInspectionPla
     <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-4">
       <div className="print:hidden">
         <h1 className="text-xl font-semibold text-app-text">연간 설비점검 계획서</h1>
-        <p className="mt-1 text-sm text-app-muted">
-          설비구분·연도를 선택하고 조회하면 계획·실적·비고가 표시됩니다. 인쇄 시 상단·좌측 메뉴는 숨겨지며, 가로 방향으로 맞춥니다.
-        </p>
       </div>
 
       {loadError ? (

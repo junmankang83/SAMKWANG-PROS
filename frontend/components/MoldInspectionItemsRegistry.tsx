@@ -636,9 +636,6 @@ export function MoldInspectionItemsRegistry() {
     <div className="flex h-[calc(100dvh-9rem)] min-h-[20rem] flex-col gap-4">
       <div className="shrink-0 space-y-1">
         <h1 className="text-xl font-semibold text-app-text">점검항목관리</h1>
-        <p className="mt-1 text-sm text-app-muted">
-          설비구분을 바꾸면 해당 구분 목록이 자동으로 조회됩니다. [상세내역수정] 팝업에서 점검방법·상세내역 등을 입력·저장·삭제할 수 있습니다.
-        </p>
       </div>
 
       {loadError ? (

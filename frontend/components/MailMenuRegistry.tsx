@@ -144,17 +144,9 @@ function emptyDraft(): DraftState {
 type MailMenuRegistryProps = {
   /** 페이지 상단 제목 (기본: 메일발송관리) */
   title?: string;
-  /** 페이지 상단 설명 */
-  description?: string;
 };
 
-const DEFAULT_DESCRIPTION =
-  '아래 표는 받을사람·발송일·발송시간이 모두 저장된 항목만 보여 줍니다(발송 목록). 메뉴는 「메뉴관리」에서 등록하고, 「발송 추가」에서 SMTP 프로필·수신자·요일·시각을 지정한 뒤 「목록에 저장」하면 지정 시각(서울)에 자동 발송됩니다. SMTP 프로필을 비우면 메뉴에 저장된 프로필 또는 등록된 첫 SMTP 프로필이 사용됩니다. 각 행의 「해제」로 자동 발송만 끌 수 있으며(목록에는 그대로 표시), 「자동설정」으로 다시 켤 수 있습니다. 「지금 발송」은 메뉴의 기본 제목·본문으로 즉시 보냅니다.';
-
-export function MailMenuRegistry({
-  title = '메일발송관리',
-  description = DEFAULT_DESCRIPTION,
-}: MailMenuRegistryProps = {}) {
+export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegistryProps = {}) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -593,7 +585,6 @@ export function MailMenuRegistry({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-app-text">{title}</h1>
-          <p className="mt-1 max-w-3xl text-sm text-app-muted">{description}</p>
         </div>
         <Button type="button" variant="primary" size="sm" disabled={busy} onClick={() => void openSend()}>
           <span className="inline-flex items-center gap-1.5">

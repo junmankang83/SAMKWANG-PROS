@@ -264,10 +264,6 @@ export function MailSettingsRegistry() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-app-text">메일설정</h1>
-          <p className="mt-1 text-sm text-app-muted">
-            SMTP 프로필을 여러 개 등록할 수 있습니다. 목록의 「테스트」로 연결 테스트 팝업을 열고, 수신자를 여러 명 넣을 수 있습니다. <strong className="text-app-text">메일발송정보</strong>의 각 규칙에서 사용할 프로필을 선택합니다. 비밀번호는 서버에 암호화되어 저장되며, 변경할 때만
-            입력합니다.
-          </p>
         </div>
         <Button type="button" variant="primary" size="sm" disabled={busy} onClick={openCreate}>
           <span className="inline-flex items-center gap-1.5">

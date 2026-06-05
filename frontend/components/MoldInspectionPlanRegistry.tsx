@@ -294,9 +294,6 @@ export function MoldInspectionPlanRegistry() {
     <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-4">
       <div>
         <h1 className="text-xl font-semibold text-app-text">설비점검계획등록</h1>
-        <p className="mt-1 text-sm text-app-muted">
-          설비구분을 선택하면 해당 구분의 점검항목이 표시됩니다. 연도·월별 계획 주차(1~5주차)를 지정한 뒤 저장하세요. 실적은 별도 화면에서 등록합니다.
-        </p>
       </div>
 
       {loadError ? (

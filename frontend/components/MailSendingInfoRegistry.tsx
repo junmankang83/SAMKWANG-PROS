@@ -39,6 +39,8 @@ type ToAddressesSource = 'snapshot' | 'current_menu' | 'current_rule';
 type UnifiedLogRow = {
   id: string;
   sentAt: string;
+  /** API가 내려주면 서울 기준 목록용 문자열(없으면 sentAt을 클라이언트에서 포맷) */
+  sentAtDisplay: string | null;
   sourceType: SourceType;
   menuCode: string | null;
   menuLabel: string | null;
@@ -168,6 +170,7 @@ export function MailSendingInfoRegistry() {
           return {
             id: String(o.id ?? ''),
             sentAt: String(o.sentAt ?? ''),
+            sentAtDisplay: typeof o.sentAtDisplay === 'string' && o.sentAtDisplay.trim() ? o.sentAtDisplay.trim() : null,
             sourceType: o.sourceType === 'RULE' ? 'RULE' : 'MENU',
             menuCode: o.menuCode != null ? String(o.menuCode) : null,
             menuLabel: o.menuLabel != null ? String(o.menuLabel) : null,
@@ -178,7 +181,7 @@ export function MailSendingInfoRegistry() {
             status: String(o.status ?? ''),
             errorMessage: o.errorMessage != null ? String(o.errorMessage) : null,
             smtpMessageId: o.smtpMessageId != null ? String(o.smtpMessageId) : null,
-            readStatusLabel: typeof o.readStatusLabel === 'string' ? o.readStatusLabel : '—',
+            readStatusLabel: typeof o.readStatusLabel === 'string' ? o.readStatusLabel : '미확인',
             readStatusDetail:
               typeof o.readStatusDetail === 'string'
                 ? o.readStatusDetail
@@ -215,15 +218,6 @@ export function MailSendingInfoRegistry() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-app-text">메일발송정보</h1>
-          <p className="mt-1 max-w-3xl text-sm text-app-muted">
-            메뉴·규칙에서 실제 발송된 이력입니다. 수신자는 발송 시점 스냅샷이 있으면 그대로 보여 주고, 없으면 메뉴·규칙에 <strong className="text-app-text">현재 저장된</strong> 주소로 보완합니다.
-            오류·메모 열에는 사람이 읽을 수 있는 메시지만 넣고, 성공 시 SMTP 메시지 ID는 툴팁에만 둡니다. <strong className="text-app-text">열람</strong>은 HTML 본문 하단의 추적 이미지(픽셀) 요청으로 기록됩니다. 공개 API 베이스는{' '}
-            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">MAIL_TRACKING_PUBLIC_URL</code>·
-            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">PUBLIC_APP_BASE</code>·
-            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">FRONTEND_PUBLIC_URL</code>·
-            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">BACKEND_PUBLIC_URL</code> 순으로, 없으면{' '}
-            <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">CORS_ORIGIN</code> 첫 주소에 <code className="rounded bg-app-muted/40 px-1 py-0.5 text-xs">/api</code>를 붙여 사용합니다. 외부 수신(예: 휴대폰 LTE)에서는 반드시 인터넷에서 열리는 URL을 지정하세요. 열람은 수신자에게 별도 확인 메일을 요청하지 않고, HTML 본문의 픽셀 요청으로만 기록됩니다. 이 표는 약 20초마다 자동 새로고침됩니다. 텍스트만 보기·이미지 차단 시에는 미확인으로 남을 수 있습니다.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-sm text-app-muted">
@@ -284,7 +278,9 @@ export function MailSendingInfoRegistry() {
                 </th>
                 <th>발송결과</th>
                 <th>오류·메모</th>
-                <th title="HTML 본문의 추적 픽셀 기준. 확인=최초 열람 기록 있음, 미확인=픽셀 포함·아직 미요청, —=추적 없음.">열람</th>
+                <th title="HTML 본문의 추적 픽셀 기준. 확인=최초 열람 기록 있음, 미확인=미열람 또는 추적 불가. 실패 건은 —.">
+                  열람
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -303,8 +299,11 @@ export function MailSendingInfoRegistry() {
               ) : (
                 rows.map((r) => (
                   <tr key={`${r.sourceType}-${r.id}`}>
-                    <td className="pros-cell-center pros-cell-truncate whitespace-nowrap font-mono text-sm" title={r.sentAt}>
-                      {r.sentAt ? formatSentAtSeoul(r.sentAt) : '—'}
+                    <td
+                      className="pros-cell-center pros-cell-truncate whitespace-nowrap font-mono text-sm"
+                      title={r.sentAtDisplay ?? (r.sentAt ? formatSentAtSeoul(r.sentAt) : '')}
+                    >
+                      {((r.sentAtDisplay ?? (r.sentAt ? formatSentAtSeoul(r.sentAt) : '')) || '—')}
                     </td>
                     <td className="pros-cell-center text-sm">{sourceLabel(r.sourceType)}</td>
                     <td className="pros-cell-center pros-cell-truncate text-sm" title={describeRow(r)}>

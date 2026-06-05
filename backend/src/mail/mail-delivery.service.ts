@@ -15,6 +15,10 @@ export type SendMailInput = {
   mailHtmlTableFragment?: string;
   /** `mailHtmlTableFragment` 앞에 표시할 순수 텍스트(사용자 본문·표 제목 등) */
   mailHtmlStructuredIntro?: string;
+  /** HTML 본문 상단 SAMKWANG·EIS 형식 타이틀 배너(메뉴명·제목 등) */
+  mailHtmlBannerTitle?: string;
+  /** 배너 `조회일`(서울 기준 표시). 없으면 발송 시각 */
+  mailHtmlBannerSendAt?: Date;
   smtp: {
     host: string;
     port: number;
@@ -49,12 +53,22 @@ export class MailDeliveryService {
       subject: input.subject,
       text: input.text,
     };
-    if (pixel || structured) {
-      mailOptions.html = buildMailHtmlBody({
+    const wantsHtml =
+      Boolean(pixel) ||
+      Boolean(structured) ||
+      Boolean(input.mailHtmlBannerTitle?.trim());
+    if (wantsHtml) {
+      const built = buildMailHtmlBody({
         plainFallback: input.text,
         openPixelUrl: pixel,
         structured,
+        mailHtmlBannerTitle: input.mailHtmlBannerTitle,
+        mailHtmlBannerSendAt: input.mailHtmlBannerSendAt ?? null,
       });
+      mailOptions.html = built.html;
+      if (built.attachments.length > 0) {
+        mailOptions.attachments = built.attachments;
+      }
     }
     const res = await transport.sendMail(mailOptions);
     return { messageId: res.messageId };

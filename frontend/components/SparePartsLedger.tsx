@@ -67,23 +67,17 @@ async function readApiError(res: Response): Promise<string> {
 
 export type SparePartsLedgerMode = 'inventory' | 'inbound' | 'outbound';
 
-const MODE_META: Record<
-  SparePartsLedgerMode,
-  { title: string; description: string; emptyHint: string }
-> = {
+const MODE_META: Record<SparePartsLedgerMode, { title: string; emptyHint: string }> = {
   inventory: {
     title: '재고현황',
-    description: '기준월 기준으로 해당 월 입·출고 합계와 현재 재고를 표시합니다.',
     emptyHint: '등록된 부품이 없습니다. 상단 버튼으로 부품 행을 추가하세요.',
   },
   inbound: {
     title: '부품입고',
-    description: '부품별 입고 수량과 일시를 등록합니다.',
     emptyHint: '등록된 부품이 없습니다. 재고현황에서 부품 행을 먼저 추가하세요.',
   },
   outbound: {
     title: '부품출고',
-    description: '부품별 출고 수량과 일시를 등록합니다.',
     emptyHint: '등록된 부품이 없습니다. 재고현황에서 부품 행을 먼저 추가하세요.',
   },
 };
@@ -420,7 +414,6 @@ export function SparePartsLedger({ mode = 'inventory' }: { mode?: SparePartsLedg
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-app-text">{meta.title}</h1>
-          <p className="mt-1 text-sm text-app-muted">{meta.description}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <FormField label="기준월">

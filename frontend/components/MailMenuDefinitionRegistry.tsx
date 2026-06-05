@@ -85,16 +85,9 @@ function emptyDraft(): DraftState {
 
 type MailMenuDefinitionRegistryProps = {
   title?: string;
-  description?: string;
 };
 
-const DEFAULT_DESCRIPTION =
-  '메일 발송에 사용할 메뉴의 순번·코드·이름·조회 쿼리를 정의합니다. 수신자·발송 요일·시각은 「메일발송관리」에서 설정합니다.';
-
-export function MailMenuDefinitionRegistry({
-  title = '메뉴관리',
-  description = DEFAULT_DESCRIPTION,
-}: MailMenuDefinitionRegistryProps = {}) {
+export function MailMenuDefinitionRegistry({ title = '메뉴관리' }: MailMenuDefinitionRegistryProps = {}) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<DefRow[]>([]);
@@ -128,10 +121,11 @@ export function MailMenuDefinitionRegistry({
 
   function openCreate() {
     setLoadError(null);
+    const nextCode = suggestNextMenuCode(rows);
     setDraft({
       id: null,
-      code: suggestNextMenuCode(rows),
-      label: '',
+      code: nextCode,
+      label: nextCode,
       sortOrder: suggestNextSortOrder(rows),
       menuQuery: '',
     });
@@ -143,7 +137,7 @@ export function MailMenuDefinitionRegistry({
     setDraft({
       id: r.id,
       code: r.code,
-      label: r.label,
+      label: r.code,
       sortOrder: String(r.sortOrder),
       menuQuery: r.menuQuery,
     });
@@ -151,14 +145,15 @@ export function MailMenuDefinitionRegistry({
   }
 
   async function saveDraft() {
-    if (!draft.code.trim() || !draft.label.trim()) {
-      setLoadError('메뉴코드와 메뉴명은 필수입니다.');
+    const codeTrim = draft.code.trim();
+    if (!codeTrim) {
+      setLoadError('메뉴코드는 필수입니다.');
       return;
     }
     const sortOrder = Math.max(0, parseInt(draft.sortOrder, 10) || 0);
     const payload = {
-      code: draft.code.trim(),
-      label: draft.label.trim(),
+      code: codeTrim,
+      label: codeTrim,
       sortOrder,
       menuQuery: draft.menuQuery,
     };
@@ -217,7 +212,6 @@ export function MailMenuDefinitionRegistry({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-app-text">{title}</h1>
-          <p className="mt-1 max-w-3xl text-sm text-app-muted">{description}</p>
         </div>
         <Button type="button" variant="primary" size="sm" disabled={busy} onClick={openCreate}>
           <span className="inline-flex items-center gap-1.5">
@@ -312,19 +306,26 @@ export function MailMenuDefinitionRegistry({
                 <AlertDescription>{loadError}</AlertDescription>
               </Alert>
             ) : null}
-            <div className="grid shrink-0 gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>메뉴코드 (영문·숫자·하이픈 등)</Label>
-                <Input value={draft.code} disabled={busy || Boolean(draft.id)} onChange={(e) => setDraft((d) => ({ ...d, code: e.target.value }))} />
-              </div>
+            <div className="flex shrink-0 flex-col gap-4">
               <div className="space-y-1.5">
                 <Label>순번</Label>
                 <Input type="number" min={0} value={draft.sortOrder} disabled={busy} onChange={(e) => setDraft((d) => ({ ...d, sortOrder: e.target.value }))} />
               </div>
-            </div>
-            <div className="shrink-0 space-y-1.5">
-              <Label>메뉴명</Label>
-              <Input value={draft.label} disabled={busy} onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))} />
+              <div className="space-y-1.5">
+                <Label>메뉴코드 (영문·숫자·하이픈 등)</Label>
+                <Input
+                  value={draft.code}
+                  disabled={busy || Boolean(draft.id)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDraft((d) => ({ ...d, code: v, label: v }));
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>메뉴명 (메뉴코드와 동일·수정 불가)</Label>
+                <Input value={draft.code} readOnly disabled={busy} className="cursor-not-allowed bg-app-muted/30" aria-readonly />
+              </div>
             </div>
             <div className="flex min-h-0 flex-1 flex-col gap-1.5">
               <Label className="shrink-0">메뉴쿼리</Label>

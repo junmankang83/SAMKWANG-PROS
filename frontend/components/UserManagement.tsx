@@ -154,7 +154,6 @@ export function UserManagement() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-app-text">사용자 관리</h1>
-          <p className="mt-1 text-sm text-app-muted">시스템 로그인 계정을 등록·관리합니다.</p>
         </div>
         <Button type="button" variant="primary" onClick={() => setAddOpen(true)}>
           <span className="inline-flex items-center gap-1.5">

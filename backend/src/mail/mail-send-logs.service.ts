@@ -26,9 +26,29 @@ function formatSeoul(dt: Date): string {
   }
 }
 
+/** 목록 발송시각: Asia/Seoul 기준 `YYYY-MM-DD HH:mm:ss` (혼동 적음) */
+function formatSentAtKstList(dt: Date): string {
+  try {
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(dt);
+  } catch {
+    return dt.toISOString();
+  }
+}
+
 export type MailUnifiedSendLogItem = {
   id: string;
   sentAt: string;
+  /** Asia/Seoul 기준 발송시각 문자열(목록 표시용) */
+  sentAtDisplay: string;
   sourceType: 'MENU' | 'RULE';
   menuCode: string | null;
   menuLabel: string | null;
@@ -101,15 +121,15 @@ export class MailSendLogsService {
       return {
         hasOpenTracking: false,
         readStatusLabel: '—',
-        readStatusDetail: '발송 성공 건만 HTML 픽셀 기준으로 확인·미확인을 표시합니다.',
+        readStatusDetail: '발송 성공 건만 열람(픽셀) 기준으로 확인·미확인을 표시합니다.',
       };
     }
     if (!token) {
       return {
         hasOpenTracking: false,
-        readStatusLabel: '—',
+        readStatusLabel: '미확인',
         readStatusDetail:
-          '이 메일에는 열람 추적(픽셀)이 포함되지 않았습니다. 공개 API 베이스(MAIL_TRACKING_PUBLIC_URL·PUBLIC_APP_BASE·CORS_ORIGIN 등)가 없거나 과거 발송일 수 있습니다.',
+          '열람 추적(픽셀)이 없어 자동 확인이 불가합니다. MAIL_TRACKING_PUBLIC_URL 등 공개 API 베이스가 없거나 텍스트만 발송된 경우일 수 있습니다.',
       };
     }
     if (firstOpenedAt) {
@@ -404,6 +424,57 @@ export class MailSendLogsService {
     throw lastErr;
   }
 
+  /** 폴백 조회에서 openTrackingToken 등이 빠진 행에 DB 값을 다시 붙입니다. */
+  private async attachMenuSendOpenFields(rows: MenuLogRowLoose[]): Promise<void> {
+    if (rows.length === 0) {
+      return;
+    }
+    try {
+      const ids = rows.map((r) => r.id);
+      const hits = await this.prisma.mailMenuSendLog.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, openTrackingToken: true, firstOpenedAt: true, openCount: true },
+      });
+      const byId = new Map(hits.map((h) => [h.id, h]));
+      for (const r of rows) {
+        const h = byId.get(r.id);
+        if (!h) {
+          continue;
+        }
+        r.openTrackingToken = h.openTrackingToken ?? r.openTrackingToken;
+        r.firstOpenedAt = h.firstOpenedAt ?? r.firstOpenedAt;
+        r.openCount = h.openCount ?? r.openCount;
+      }
+    } catch (e) {
+      this.logger.warn(`메뉴 발송 로그 열람 필드 보강 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private async attachRuleSendOpenFields(rows: RuleLogRowLoose[]): Promise<void> {
+    if (rows.length === 0) {
+      return;
+    }
+    try {
+      const ids = rows.map((r) => r.id);
+      const hits = await this.prisma.mailSendLog.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, openTrackingToken: true, firstOpenedAt: true, openCount: true },
+      });
+      const byId = new Map(hits.map((h) => [h.id, h]));
+      for (const r of rows) {
+        const h = byId.get(r.id);
+        if (!h) {
+          continue;
+        }
+        r.openTrackingToken = h.openTrackingToken ?? r.openTrackingToken;
+        r.firstOpenedAt = h.firstOpenedAt ?? r.firstOpenedAt;
+        r.openCount = h.openCount ?? r.openCount;
+      }
+    } catch (e) {
+      this.logger.warn(`규칙 발송 로그 열람 필드 보강 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   async listUnified(takeInput: number): Promise<MailUnifiedSendLogItem[]> {
     const take = Math.min(500, Math.max(1, takeInput));
 
@@ -420,6 +491,9 @@ export class MailSendLogsService {
       this.logger.error(`규칙 발송 로그 통합 목록을 가져오지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
     }
 
+    await this.attachMenuSendOpenFields(menuRows);
+    await this.attachRuleSendOpenFields(ruleRows);
+
     const fromMenu: MailUnifiedSendLogItem[] = menuRows.map((r) => {
       const snap = jsonToEmails(r.toAddressesSnapshot);
       const fromMenuCfg = jsonToEmails(r.mailMenu?.recipientEmails);
@@ -429,6 +503,7 @@ export class MailSendLogsService {
       return {
         id: r.id,
         sentAt: r.sentAt.toISOString(),
+        sentAtDisplay: formatSentAtKstList(r.sentAt),
         sourceType: 'MENU' as const,
         menuCode: r.mailMenu?.code ?? null,
         menuLabel: r.mailMenu?.label ?? null,
@@ -451,6 +526,7 @@ export class MailSendLogsService {
         return {
           id: r.id,
           sentAt: r.sentAt.toISOString(),
+          sentAtDisplay: formatSentAtKstList(r.sentAt),
           sourceType: 'RULE' as const,
           menuCode: null,
           menuLabel: null,
@@ -474,6 +550,7 @@ export class MailSendLogsService {
       return {
         id: r.id,
         sentAt: r.sentAt.toISOString(),
+        sentAtDisplay: formatSentAtKstList(r.sentAt),
         sourceType: 'RULE' as const,
         menuCode: rule.mailMenu?.code ?? null,
         menuLabel: rule.mailMenu?.label ?? null,
