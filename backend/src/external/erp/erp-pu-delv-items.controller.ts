@@ -8,6 +8,6 @@ export class ErpPuDelvItemsController {
 
   @Get()
   list(@Query() query: PuDelvItemsQueryDto) {
-    return this.puDelvItems.listByDelvDateRange(query.from, query.to, query.limit);
+    return this.puDelvItems.listByDelvDateRange(query.from, query.to, query.limit, query.schemaMeta);
   }
 }

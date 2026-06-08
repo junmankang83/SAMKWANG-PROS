@@ -12,21 +12,20 @@ import {
 import { EIS_TABLE_SCROLL_WRAP, EIS_TD, EIS_TD_LEFT, EIS_TD_NUM, EIS_TH } from '@/lib/eis-report-table-classes';
 import { useCallback, useMemo, useState } from 'react';
 
-/** 백엔드 `TslDvReqItemRow` — 반품요청 품목 조회 열 순서 */
-type TslDvReqItemRow = {
+/** 백엔드 `OspDelvItemRow` — ERP「외주납품품목조회」그리드 열 */
+export type OspDelvItemRow = {
   rowNo: number;
+  status: string | null;
   bizUnit: number | null;
-  reqSeq: number | null;
-  reqNo: string | null;
-  reqDate: string;
-  umOutKind: number | null;
-  outKindName: string | null;
-  customerCode: string | null;
-  customerName: string | null;
-  deptName: string | null;
-  empName: string | null;
+  delvNo: string | null;
   lineSerl: number | null;
-  itemNo: string | null;
+  delvDate: string;
+  outsourceVendorName: string | null;
+  recvVendorName: string | null;
+  chargePerson: string | null;
+  delvKind: string | null;
+  recvProgressStatus: string | null;
+  itemCode: string | null;
   itemName: string | null;
   spec: string | null;
   unit: string | null;
@@ -35,12 +34,58 @@ type TslDvReqItemRow = {
   supplyAmount: number | null;
   vatAmount: number | null;
   totalAmount: number | null;
-  remark: string | null;
+  currency: string | null;
+  exchangeRate: number | null;
+  foreignSupplyAmount: number | null;
+  foreignVatAmount: number | null;
+  foreignTotalAmount: number | null;
   whName: string | null;
-  projectName: string | null;
-  dueDate: string | null;
-  progressStatus: string | null;
+  storageLocation: string | null;
+  remark: string | null;
+  purOrderNo: string | null;
+  purOrderSerl: number | null;
+  purOrderDate: string | null;
+  regUser: string | null;
+  regDateTime: string | null;
 };
+
+const OSP_COLS: { key: keyof OspDelvItemRow; label: string; numeric?: boolean; left?: boolean }[] = [
+  { key: 'status', label: '상태' },
+  { key: 'rowNo', label: '순번', numeric: true },
+  { key: 'delvNo', label: '납품번호' },
+  { key: 'lineSerl', label: '납품순번', numeric: true },
+  { key: 'delvDate', label: '납품일자' },
+  { key: 'outsourceVendorName', label: '외주처명', left: true },
+  { key: 'recvVendorName', label: '납품처명', left: true },
+  { key: 'chargePerson', label: '담당자' },
+  { key: 'delvKind', label: '납품구분' },
+  { key: 'recvProgressStatus', label: '입고진행상태' },
+  { key: 'itemCode', label: '품목코드' },
+  { key: 'itemName', label: '품목명', left: true },
+  { key: 'spec', label: '규격' },
+  { key: 'unit', label: '단위' },
+  { key: 'qty', label: '납품수량', numeric: true },
+  { key: 'unitPrice', label: '단가', numeric: true },
+  { key: 'supplyAmount', label: '금액', numeric: true },
+  { key: 'vatAmount', label: '부가세', numeric: true },
+  { key: 'totalAmount', label: '합계', numeric: true },
+  { key: 'currency', label: '통화' },
+  { key: 'exchangeRate', label: '환율', numeric: true },
+  { key: 'foreignSupplyAmount', label: '외화금액', numeric: true },
+  { key: 'foreignVatAmount', label: '외화부가세', numeric: true },
+  { key: 'foreignTotalAmount', label: '외화합계', numeric: true },
+  { key: 'whName', label: '창고', left: true },
+  { key: 'storageLocation', label: '보관장소', left: true },
+  { key: 'remark', label: '비고', left: true },
+  { key: 'purOrderNo', label: '발주번호', left: true },
+  { key: 'purOrderSerl', label: '발주순번', numeric: true },
+  { key: 'purOrderDate', label: '발주일자' },
+  { key: 'regUser', label: '등록자' },
+  { key: 'regDateTime', label: '등록일시' },
+  { key: 'bizUnit', label: '사업장', numeric: true },
+];
+
+const COL_COUNT = OSP_COLS.length;
 
 async function readApiError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
@@ -75,11 +120,11 @@ function cellText(v: string | null | undefined): string {
   return v;
 }
 
-export type TslDvReqItemInquiryProps = {
+export type OspDelvItemInquiryProps = {
   embedded?: boolean;
 };
 
-export function TslDvReqItemInquiry({ embedded = false }: TslDvReqItemInquiryProps) {
+export function OspDelvItemInquiry({ embedded = false }: OspDelvItemInquiryProps) {
   const defaults = useMemo(() => {
     const today = new Date();
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -90,7 +135,7 @@ export function TslDvReqItemInquiry({ embedded = false }: TslDvReqItemInquiryPro
   const [to, setTo] = useState(defaults.to);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [items, setItems] = useState<TslDvReqItemRow[]>([]);
+  const [items, setItems] = useState<OspDelvItemRow[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
 
@@ -99,14 +144,14 @@ export function TslDvReqItemInquiry({ embedded = false }: TslDvReqItemInquiryPro
     setError(null);
     try {
       const params = new URLSearchParams({ from, to });
-      const res = await fetch(`/api/erp/tsl-dv-req-items?${params}`, { credentials: 'include' });
+      const res = await fetch(`/api/erp/osp-delv-items?${params}`, { credentials: 'include' });
       if (!res.ok) {
         setItems([]);
         setTruncated(false);
         setError(await readApiError(res));
         return;
       }
-      const body = (await res.json()) as { items: TslDvReqItemRow[]; truncated: boolean };
+      const body = (await res.json()) as { items: OspDelvItemRow[]; truncated: boolean };
       setItems(Array.isArray(body.items) ? body.items : []);
       setTruncated(Boolean(body.truncated));
     } catch {
@@ -144,7 +189,13 @@ export function TslDvReqItemInquiry({ embedded = false }: TslDvReqItemInquiryPro
                 className="h-8 w-[9.5rem] text-xs"
               />
             </label>
-            <Button type="button" size="sm" className="shrink-0" onClick={() => void fetchData()} disabled={loading}>
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0"
+              onClick={() => void fetchData()}
+              disabled={loading}
+            >
               {loading ? '조회 중…' : '조회'}
             </Button>
           </div>
@@ -169,74 +220,40 @@ export function TslDvReqItemInquiry({ embedded = false }: TslDvReqItemInquiryPro
             <table className="min-w-max border-collapse">
               <thead className="sticky top-0 z-10 bg-[#E7E6E6]">
                 <tr>
-                  <th className={EIS_TH}>순번</th>
-                  <th className={EIS_TH}>요청번호</th>
-                  <th className={EIS_TH}>요청일</th>
-                  <th className={EIS_TH}>거래처</th>
-                  <th className={EIS_TH}>거래처명</th>
-                  <th className={EIS_TH}>품목코드</th>
-                  <th className={EIS_TH}>품목명</th>
-                  <th className={EIS_TH}>규격</th>
-                  <th className={EIS_TH}>단위</th>
-                  <th className={EIS_TH}>요청수량</th>
-                  <th className={EIS_TH}>단가</th>
-                  <th className={EIS_TH}>공급가액</th>
-                  <th className={EIS_TH}>부가세</th>
-                  <th className={EIS_TH}>합계금액</th>
-                  <th className={EIS_TH}>비고</th>
-                  <th className={EIS_TH}>창고</th>
-                  <th className={EIS_TH}>출고구분</th>
-                  <th className={EIS_TH}>프로젝트</th>
-                  <th className={EIS_TH}>담당자</th>
-                  <th className={EIS_TH}>부서</th>
-                  <th className={EIS_TH}>납기일</th>
-                  <th className={EIS_TH}>진행상태</th>
-                  <th className={EIS_TH}>라인순번</th>
-                  <th className={EIS_TH}>UM출고코드</th>
-                  <th className={EIS_TH}>요청Seq</th>
-                  <th className={EIS_TH}>사업장</th>
+                  {OSP_COLS.map((c) => (
+                    <th key={c.key} className={EIS_TH}>
+                      {c.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {items.length === 0 && !loading ? (
                   <tr>
-                    <td className={EIS_TD} colSpan={26}>
+                    <td className={EIS_TD} colSpan={COL_COUNT}>
                       {error
                         ? '—'
                         : hasFetched
-                          ? '당일 등록된 실적이 없습니다.'
+                          ? '해당 기간에 조회된 데이터가 없습니다.'
                           : '조회 결과가 없습니다. 일자를 선택한 뒤 조회를 누르세요.'}
                     </td>
                   </tr>
                 ) : null}
-                {items.map((r) => (
-                  <tr key={`${r.reqNo ?? ''}-${r.reqSeq ?? ''}-${r.lineSerl ?? ''}-${r.rowNo}`}>
-                    <td className={EIS_TD_NUM}>{r.rowNo}</td>
-                    <td className={EIS_TD}>{cellText(r.reqNo)}</td>
-                    <td className={EIS_TD}>{cellText(r.reqDate)}</td>
-                    <td className={EIS_TD}>{cellText(r.customerCode)}</td>
-                    <td className={EIS_TD}>{cellText(r.customerName)}</td>
-                    <td className={EIS_TD}>{cellText(r.itemNo)}</td>
-                    <td className={EIS_TD_LEFT}>{cellText(r.itemName)}</td>
-                    <td className={EIS_TD}>{cellText(r.spec)}</td>
-                    <td className={EIS_TD}>{cellText(r.unit)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.qty)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.unitPrice)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.supplyAmount)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.vatAmount)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.totalAmount)}</td>
-                    <td className={EIS_TD}>{cellText(r.remark)}</td>
-                    <td className={EIS_TD}>{cellText(r.whName)}</td>
-                    <td className={EIS_TD}>{cellText(r.outKindName)}</td>
-                    <td className={EIS_TD}>{cellText(r.projectName)}</td>
-                    <td className={EIS_TD}>{cellText(r.empName)}</td>
-                    <td className={EIS_TD}>{cellText(r.deptName)}</td>
-                    <td className={EIS_TD}>{cellText(r.dueDate)}</td>
-                    <td className={EIS_TD}>{cellText(r.progressStatus)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.lineSerl)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.umOutKind)}</td>
-                    <td className={EIS_TD_NUM}>{formatNumber(r.reqSeq)}</td>
-                    <td className={EIS_TD_NUM}>{r.bizUnit ?? ''}</td>
+                {items.map((r, idx) => (
+                  <tr key={`${r.delvNo ?? ''}-${r.lineSerl ?? ''}-${r.itemCode ?? ''}-${idx}`}>
+                    {OSP_COLS.map((c) => {
+                      const v = r[c.key];
+                      const tdClass = c.left ? EIS_TD_LEFT : c.numeric ? EIS_TD_NUM : EIS_TD;
+                      const text =
+                        c.numeric && (typeof v === 'number' || v == null)
+                          ? formatNumber(v as number | null)
+                          : cellText(v as string | null);
+                      return (
+                        <td key={c.key} className={tdClass}>
+                          {text}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

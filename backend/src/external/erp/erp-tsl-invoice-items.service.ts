@@ -261,9 +261,15 @@ export class ErpTslInvoiceItemsService {
       inspectionSelect = 'CAST(NULL AS nvarchar(50)) AS IsInspection';
     }
 
-    const smExpKindPredicate = has('_TSLInvoice', 'SMExpKind')
-      ? '(h.SMExpKind IS NULL OR LTRIM(RTRIM(CAST(h.SMExpKind AS NVARCHAR(50)))) <> @excludeSmExpKind)'
-      : '(1 = 1)';
+    const smHdr = has('_TSLInvoice', 'SMExpKind');
+    const smLn = has('_TSLInvoiceItem', 'SMExpKind');
+    const hOk = !smHdr
+      ? '1=1'
+      : '(h.SMExpKind IS NULL OR LTRIM(RTRIM(CAST(h.SMExpKind AS NVARCHAR(50)))) <> @excludeSmExpKind)';
+    const iOk = !smLn
+      ? '1=1'
+      : '(i.SMExpKind IS NULL OR LTRIM(RTRIM(CAST(i.SMExpKind AS NVARCHAR(50)))) <> @excludeSmExpKind)';
+    const smExpKindPredicate = `(${hOk} AND ${iOk})`;
 
     const priceBits: string[] = [];
     if (has('_TSLInvoiceItem', 'CustPrice')) {
@@ -303,7 +309,7 @@ export class ErpTslInvoiceItemsService {
     this.logger.log(
       `TSL invoice SQL: Remark=${has('_TSLInvoiceItem', 'Remark')} Memo=${has('_TSLInvoiceItem', 'Memo')} ` +
         `IsInspection=${has('_TSLInvoiceItem', 'IsInspection') ? 'item' : has('_TSLInvoice', 'IsInspection') ? 'hdr' : 'none'} ` +
-        `SMExpKind=${has('_TSLInvoice', 'SMExpKind')} priceCols=${priceBits.length}`,
+        `SMExpKind hdr=${smHdr} line=${smLn} priceCols=${priceBits.length}`,
     );
     return this.tslSqlFragments;
   }
@@ -324,7 +330,7 @@ export class ErpTslInvoiceItemsService {
    * 거래명세서 일자 구간 품목 라인 (엑셀 양식 컬럼).
    * 입고창고: 라인 `DVPlaceSeq`를 `_TDAWH`와 매칭(현장 DB가 다르면 조인 조정).
    * 생산일자·유효일자: 별도 LOT 테이블 미연동 시 빈 값.
-   * `_TSLInvoice.SMExpKind` = 수출 코드 `8009004` 인 명세는 제외(SMExpKind NULL 은 포함).
+   * 헤더·품목라인 `SMExpKind` 중 **어느 한쪽이라도** 수출 코드 `8009004`이면 해당 라인은 제외합니다.
    */
   async listByInvoiceDateRange(
     fromIso: string,

@@ -1,14 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ErpPuDelvInItemsService, type PuDelvInItemRow } from '../external/erp/erp-pu-delv-in-items.service';
+import { ErpOspDelvInItemsService } from '../external/erp/erp-osp-delv-in-items.service';
 import { ErpPuDelvItemsService, type PuDelvItemRow } from '../external/erp/erp-pu-delv-items.service';
-import { ErpTslExportInvoiceItemsService, type TslExportInvoiceItemRow } from '../external/erp/erp-tsl-export-invoice-items.service';
+import { ErpOspDelvItemsService, type OspDelvItemRow } from '../external/erp/erp-osp-delv-items.service';
+import { ErpTslExportInvoiceItemsService, type TslExportInvoiceItemRow, type TslExportReturnInvoiceItemRow } from '../external/erp/erp-tsl-export-invoice-items.service';
 import { ErpTslDvReqItemsService, type TslDvReqItemRow } from '../external/erp/erp-tsl-dv-req-items.service';
 import { ErpTslInvoiceItemsService, type TslInvoiceItemRow } from '../external/erp/erp-tsl-invoice-items.service';
 import { escapeHtml } from './mail-html-body';
 import { isPuDelvInItemsMailMenu } from './mail-pu-delv-in-menu-match';
+import { isOspDelvInItemsMailMenu } from './mail-osp-delv-in-menu-match';
 import { isPuDelvItemsMailMenu } from './mail-pu-delv-menu-match';
+import { isOspDelvItemsMailMenu } from './mail-osp-delv-menu-match';
 import { isTslDvReqItemsMailMenu } from './mail-tsl-dv-req-menu-match';
 import { isTslExportInvoiceItemsMailMenu } from './mail-tsl-export-invoice-menu-match';
+import { isTslExportReturnInvoiceItemsMailMenu } from './mail-tsl-export-return-invoice-menu-match';
 import { isTslInvoiceItemsMailMenu } from './mail-tsl-menu-match';
 
 export type MailMenuReportAppendResult = {
@@ -167,6 +172,71 @@ const PDV_MAIL_LEFT_KEYS = new Set<keyof PuDelvItemRow>([
   'manufacturer',
 ]);
 
+/** 외주납품 품목 — `OspDelvItemRow` 숫자 열(메일 탭/HTML 포맷) */
+const OSP_NUMERIC_KEYS = new Set<keyof OspDelvItemRow>([
+  'rowNo',
+  'bizUnit',
+  'lineSerl',
+  'qty',
+  'unitPrice',
+  'supplyAmount',
+  'vatAmount',
+  'totalAmount',
+  'exchangeRate',
+  'foreignSupplyAmount',
+  'foreignVatAmount',
+  'foreignTotalAmount',
+  'purOrderSerl',
+]);
+
+/** 외주납품 품목 — ERP「외주납품품목조회」그리드 열 순 */
+const OSP_COLUMNS: { key: keyof OspDelvItemRow; header: string }[] = [
+  { key: 'status', header: '상태' },
+  { key: 'rowNo', header: '순번' },
+  { key: 'delvNo', header: '납품번호' },
+  { key: 'lineSerl', header: '납품순번' },
+  { key: 'delvDate', header: '납품일자' },
+  { key: 'outsourceVendorName', header: '외주처명' },
+  { key: 'recvVendorName', header: '납품처명' },
+  { key: 'chargePerson', header: '담당자' },
+  { key: 'delvKind', header: '납품구분' },
+  { key: 'recvProgressStatus', header: '입고진행상태' },
+  { key: 'itemCode', header: '품목코드' },
+  { key: 'itemName', header: '품목명' },
+  { key: 'spec', header: '규격' },
+  { key: 'unit', header: '단위' },
+  { key: 'qty', header: '납품수량' },
+  { key: 'unitPrice', header: '단가' },
+  { key: 'supplyAmount', header: '금액' },
+  { key: 'vatAmount', header: '부가세' },
+  { key: 'totalAmount', header: '합계' },
+  { key: 'currency', header: '통화' },
+  { key: 'exchangeRate', header: '환율' },
+  { key: 'foreignSupplyAmount', header: '외화금액' },
+  { key: 'foreignVatAmount', header: '외화부가세' },
+  { key: 'foreignTotalAmount', header: '외화합계' },
+  { key: 'whName', header: '창고' },
+  { key: 'storageLocation', header: '보관장소' },
+  { key: 'remark', header: '비고' },
+  { key: 'purOrderNo', header: '발주번호' },
+  { key: 'purOrderSerl', header: '발주순번' },
+  { key: 'purOrderDate', header: '발주일자' },
+  { key: 'regUser', header: '등록자' },
+  { key: 'regDateTime', header: '등록일시' },
+  { key: 'bizUnit', header: '사업장' },
+];
+
+const OSP_MAIL_LEFT_KEYS = new Set<keyof OspDelvItemRow>([
+  'outsourceVendorName',
+  'recvVendorName',
+  'itemName',
+  'remark',
+  'purOrderNo',
+  'chargePerson',
+  'whName',
+  'storageLocation',
+]);
+
 const DV_REQ_NUMERIC_KEYS = new Set<keyof TslDvReqItemRow>([
   'rowNo',
   'bizUnit',
@@ -180,31 +250,47 @@ const DV_REQ_NUMERIC_KEYS = new Set<keyof TslDvReqItemRow>([
   'totalAmount',
 ]);
 
-const DV_MAIL_LEFT_KEYS = new Set<keyof TslDvReqItemRow>(['itemName', 'customerName', 'remark', 'deptName', 'empName']);
+const DV_MAIL_LEFT_KEYS = new Set<keyof TslDvReqItemRow>([
+  'itemName',
+  'customerName',
+  'remark',
+  'deptName',
+  'empName',
+  'outKindName',
+  'whName',
+  'projectName',
+  'dueDate',
+  'progressStatus',
+]);
 
-/** 반품요청 품목 — API `TslDvReqItemRow` 열 순서 */
+/** 반품요청 품목 — API `TslDvReqItemRow` 열 순서 (ERP 반품요청품목조회 그리드와 유사) */
 const DV_REQ_COLUMNS: { key: keyof TslDvReqItemRow; header: string }[] = [
   { key: 'rowNo', header: '순번' },
-  { key: 'bizUnit', header: '사업장' },
-  { key: 'reqSeq', header: '요청Seq' },
   { key: 'reqNo', header: '요청번호' },
   { key: 'reqDate', header: '요청일' },
-  { key: 'umOutKind', header: 'UM출고구분' },
-  { key: 'customerCode', header: '거래처코드' },
+  { key: 'customerCode', header: '거래처' },
   { key: 'customerName', header: '거래처명' },
-  { key: 'deptName', header: '부서' },
-  { key: 'empName', header: '담당자' },
-  { key: 'lineSerl', header: '라인순번' },
-  { key: 'itemNo', header: '품번' },
-  { key: 'itemName', header: '품명' },
+  { key: 'itemNo', header: '품목코드' },
+  { key: 'itemName', header: '품목명' },
   { key: 'spec', header: '규격' },
   { key: 'unit', header: '단위' },
-  { key: 'qty', header: '수량' },
+  { key: 'qty', header: '요청수량' },
   { key: 'unitPrice', header: '단가' },
   { key: 'supplyAmount', header: '공급가액' },
   { key: 'vatAmount', header: '부가세' },
-  { key: 'totalAmount', header: '합계' },
+  { key: 'totalAmount', header: '합계금액' },
   { key: 'remark', header: '비고' },
+  { key: 'whName', header: '창고' },
+  { key: 'outKindName', header: '출고구분' },
+  { key: 'projectName', header: '프로젝트' },
+  { key: 'empName', header: '담당자' },
+  { key: 'deptName', header: '부서' },
+  { key: 'dueDate', header: '납기일' },
+  { key: 'progressStatus', header: '진행상태' },
+  { key: 'lineSerl', header: '라인순번' },
+  { key: 'umOutKind', header: 'UM출고코드' },
+  { key: 'reqSeq', header: '요청Seq' },
+  { key: 'bizUnit', header: '사업장' },
 ];
 
 function tslMailCell(row: TslInvoiceItemRow, key: keyof TslInvoiceItemRow): string {
@@ -226,6 +312,14 @@ function puMailCell(row: PuDelvInItemRow, key: keyof PuDelvInItemRow): string {
 function pdvMailCell(row: PuDelvItemRow, key: keyof PuDelvItemRow): string {
   const v = row[key];
   if (PDV_NUMERIC_KEYS.has(key)) {
+    return formatNumberKo(v as number | null | undefined);
+  }
+  return cell(v as string | number | null);
+}
+
+function ospMailCell(row: OspDelvItemRow, key: keyof OspDelvItemRow): string {
+  const v = row[key];
+  if (OSP_NUMERIC_KEYS.has(key)) {
     return formatNumberKo(v as number | null | undefined);
   }
   return cell(v as string | number | null);
@@ -332,6 +426,66 @@ const TSL_EXP_COLUMNS: { key: keyof TslExportInvoiceItemRow; header: string }[] 
 function expMailCell(row: TslExportInvoiceItemRow, key: keyof TslExportInvoiceItemRow): string {
   const v = row[key];
   if (TSL_EXP_NUMERIC_KEYS.has(key)) {
+    return formatNumberKo(v as number | null | undefined);
+  }
+  return cell(v as string | number | null);
+}
+
+const TSL_EXP_RET_NUMERIC_KEYS = new Set<keyof TslExportReturnInvoiceItemRow>([
+  'rowNo',
+  'exchangeRate',
+  'unitPrice',
+  'qty',
+  'foreignAmount',
+  'amount',
+  'vatAmount',
+  'totalAmount',
+]);
+
+const TSL_EXP_RET_MAIL_LEFT_KEYS = new Set<keyof TslExportReturnInvoiceItemRow>([
+  'siteName',
+  'customerName',
+  'itemName',
+  'remark',
+  'warehouseName',
+  'chargePersonName',
+  'spec',
+  'itemCode',
+  'unit',
+  'customerCode',
+]);
+
+const TSL_EXP_RET_COLUMNS: { key: keyof TslExportReturnInvoiceItemRow; header: string }[] = [
+  { key: 'rowNo', header: '순번' },
+  { key: 'status', header: '상태' },
+  { key: 'siteName', header: '사업장' },
+  { key: 'invoiceNo', header: 'Invoice No.' },
+  { key: 'invoiceDate', header: 'Invoice일자' },
+  { key: 'customerCode', header: '거래처' },
+  { key: 'customerName', header: '거래처명' },
+  { key: 'itemCode', header: '품목코드' },
+  { key: 'itemName', header: '품목명' },
+  { key: 'spec', header: '규격' },
+  { key: 'unit', header: '단위' },
+  { key: 'currencyName', header: '화폐' },
+  { key: 'exchangeRate', header: '환율' },
+  { key: 'unitPrice', header: '단가' },
+  { key: 'qty', header: '수량' },
+  { key: 'foreignAmount', header: '외화금액' },
+  { key: 'amount', header: '원화금액' },
+  { key: 'vatAmount', header: '부가세' },
+  { key: 'totalAmount', header: '합계금액' },
+  { key: 'warehouseName', header: '창고' },
+  { key: 'chargePersonName', header: '담당자' },
+  { key: 'lotNo', header: 'Lot No.' },
+  { key: 'exportDeclNo', header: '수출신고번호' },
+  { key: 'remark', header: '비고' },
+  { key: 'exportKind', header: '수출구분' },
+];
+
+function expRetMailCell(row: TslExportReturnInvoiceItemRow, key: keyof TslExportReturnInvoiceItemRow): string {
+  const v = row[key];
+  if (TSL_EXP_RET_NUMERIC_KEYS.has(key)) {
     return formatNumberKo(v as number | null | undefined);
   }
   return cell(v as string | number | null);
@@ -472,6 +626,36 @@ function buildTslExpHtmlTableFragment(items: TslExportInvoiceItemRow[], truncate
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="${tableStyle}">${thead}<tbody>${bodyRows}${footRow}</tbody></table>`;
 }
 
+function buildTslExpRetHtmlTableFragment(items: TslExportReturnInvoiceItemRow[], truncated: boolean): string {
+  const tableStyle = MAIL_ERP_TABLE_STYLE;
+  const thStyle = MAIL_ERP_TH_STYLE;
+  const tdStyleCenter = MAIL_ERP_TD_CENTER;
+  const tdStyleName = MAIL_ERP_TD_LEFT;
+  const tdNumeric = MAIL_ERP_TD_NUM;
+
+  if (items.length === 0) {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" style="${tableStyle}"><tbody><tr><td style="${tdStyleCenter}" colspan="${TSL_EXP_RET_COLUMNS.length}">${escapeHtml(ERP_MAIL_NO_ROWS_MESSAGE)}</td></tr></tbody></table>`;
+  }
+
+  const thead = `<thead><tr>${TSL_EXP_RET_COLUMNS.map((c) => `<th style="${thStyle}">${escapeHtml(c.header)}</th>`).join('')}</tr></thead>`;
+  const bodyRows = items
+    .map(
+      (row) =>
+        `<tr>${TSL_EXP_RET_COLUMNS.map((c) => {
+          const text = expRetMailCell(row, c.key);
+          const isLeft = TSL_EXP_RET_MAIL_LEFT_KEYS.has(c.key);
+          const isNum = TSL_EXP_RET_NUMERIC_KEYS.has(c.key);
+          const st = isLeft ? tdStyleName : isNum ? tdNumeric : tdStyleCenter;
+          return `<td style="${st}">${escapeHtml(text)}</td>`;
+        }).join('')}</tr>`,
+    )
+    .join('');
+  const footRow = truncated
+    ? `<tr><td colspan="${TSL_EXP_RET_COLUMNS.length}" style="${tdStyleCenter};font-style:italic;color:#374151;">${escapeHtml(`(행이 많아 상위 ${items.length}건만 표시했습니다.)`)}</td></tr>`
+    : '';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="${tableStyle}">${thead}<tbody>${bodyRows}${footRow}</tbody></table>`;
+}
+
 function buildPuHtmlTableFragment(items: PuDelvInItemRow[], truncated: boolean): string {
   const tableStyle = MAIL_ERP_TABLE_STYLE;
   const thStyle = MAIL_ERP_TH_STYLE;
@@ -532,6 +716,36 @@ function buildPdvHtmlTableFragment(items: PuDelvItemRow[], truncated: boolean): 
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="${tableStyle}">${thead}<tbody>${bodyRows}${footRow}</tbody></table>`;
 }
 
+function buildOspHtmlTableFragment(items: OspDelvItemRow[], truncated: boolean): string {
+  const tableStyle = MAIL_ERP_TABLE_STYLE;
+  const thStyle = MAIL_ERP_TH_STYLE;
+  const tdStyleCenter = MAIL_ERP_TD_CENTER;
+  const tdStyleName = MAIL_ERP_TD_LEFT;
+  const tdNumeric = MAIL_ERP_TD_NUM;
+
+  if (items.length === 0) {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" style="${tableStyle}"><tbody><tr><td style="${tdStyleCenter}" colspan="${OSP_COLUMNS.length}">${escapeHtml(ERP_MAIL_NO_ROWS_MESSAGE)}</td></tr></tbody></table>`;
+  }
+
+  const thead = `<thead><tr>${OSP_COLUMNS.map((c) => `<th style="${thStyle}">${escapeHtml(c.header)}</th>`).join('')}</tr></thead>`;
+  const bodyRows = items
+    .map(
+      (row) =>
+        `<tr>${OSP_COLUMNS.map((c) => {
+          const text = ospMailCell(row, c.key);
+          const isLeft = OSP_MAIL_LEFT_KEYS.has(c.key);
+          const isNum = OSP_NUMERIC_KEYS.has(c.key);
+          const st = isLeft ? tdStyleName : isNum ? tdNumeric : tdStyleCenter;
+          return `<td style="${st}">${escapeHtml(text)}</td>`;
+        }).join('')}</tr>`,
+    )
+    .join('');
+  const footRow = truncated
+    ? `<tr><td colspan="${OSP_COLUMNS.length}" style="${tdStyleCenter};font-style:italic;color:#374151;">${escapeHtml(`(행이 많아 상위 ${items.length}건만 표시했습니다.)`)}</td></tr>`
+    : '';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="${tableStyle}">${thead}<tbody>${bodyRows}${footRow}</tbody></table>`;
+}
+
 function buildDvReqHtmlTableFragment(items: TslDvReqItemRow[], truncated: boolean): string {
   const tableStyle = MAIL_ERP_TABLE_STYLE;
   const thStyle = MAIL_ERP_TH_STYLE;
@@ -573,7 +787,9 @@ export class MailMenuReportService {
     private readonly tslExportInvoiceItems: ErpTslExportInvoiceItemsService,
     private readonly tslDvReqItems: ErpTslDvReqItemsService,
     private readonly puDelvInItems: ErpPuDelvInItemsService,
+    private readonly ospDelvInItems: ErpOspDelvInItemsService,
     private readonly puDelvItems: ErpPuDelvItemsService,
+    private readonly ospDelvItems: ErpOspDelvItemsService,
   ) {}
 
   /**
@@ -586,20 +802,29 @@ export class MailMenuReportService {
     sendAt: Date = new Date(),
   ): Promise<MailMenuReportAppendResult> {
     const today = seoulYmd(sendAt);
-    if (isTslInvoiceItemsMailMenu(menu)) {
-      return this.appendTslInvoiceReport(body, menu, today);
+    if (isOspDelvInItemsMailMenu(menu)) {
+      return this.appendOspDelvInReport(body, menu, today);
+    }
+    if (isTslExportReturnInvoiceItemsMailMenu(menu)) {
+      return this.appendTslExportReturnInvoiceReport(body, menu, today);
+    }
+    if (isTslDvReqItemsMailMenu(menu)) {
+      return this.appendTslDvReqReport(body, menu, today);
+    }
+    if (isOspDelvItemsMailMenu(menu)) {
+      return this.appendOspDelvItemsReport(body, menu, today);
     }
     if (isTslExportInvoiceItemsMailMenu(menu)) {
       return this.appendTslExportInvoiceReport(body, menu, today);
+    }
+    if (isTslInvoiceItemsMailMenu(menu)) {
+      return this.appendTslInvoiceReport(body, menu, today);
     }
     if (isPuDelvItemsMailMenu(menu)) {
       return this.appendPuDelvItemsReport(body, menu, today);
     }
     if (isPuDelvInItemsMailMenu(menu)) {
       return this.appendPuDelvInReport(body, menu, today);
-    }
-    if (isTslDvReqItemsMailMenu(menu)) {
-      return this.appendTslDvReqReport(body, menu, today);
     }
     return { text: body ?? '' };
   }
@@ -670,6 +895,73 @@ export class MailMenuReportService {
     })();
   }
 
+  private appendTslExportReturnInvoiceReport(
+    body: string,
+    _menu: { label: string; code: string },
+    today: string,
+  ): Promise<MailMenuReportAppendResult> {
+    const base = (body ?? '').trimEnd();
+
+    return (async () => {
+      try {
+        const { items, truncated } = await this.tslExportInvoiceItems.listExportReturnByInvoiceDateRange(
+          today,
+          today,
+          MailMenuReportService.ERP_EMAIL_ROW_LIMIT,
+        );
+        const plainReport = this.formatTslExpRetPlainText(items, truncated);
+        const fullText = base ? `${base}\n${plainReport}` : plainReport.replace(/^\n+/, '');
+        const intro = base ? `${base}\n\n` : '';
+        const mailHtmlTableFragment = buildTslExpRetHtmlTableFragment(items, truncated);
+        return {
+          text: fullText,
+          mailHtmlStructuredIntro: intro,
+          mailHtmlTableFragment,
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`메일 본문용 수출 반품 품목 조회 실패: ${msg}`);
+        const reportBlock = ['', `[ERP 조회 실패] ${msg}`].join('\n');
+        const fullText = base ? `${base}\n${reportBlock}` : reportBlock.replace(/^\n+/, '');
+        return { text: fullText };
+      }
+    })();
+  }
+
+  private appendOspDelvInReport(
+    body: string,
+    _menu: { label: string; code: string },
+    today: string,
+  ): Promise<MailMenuReportAppendResult> {
+    const base = (body ?? '').trimEnd();
+
+    return (async () => {
+      try {
+        const { items, truncated } = await this.ospDelvInItems.listByDelvInDateRange(
+          today,
+          today,
+          MailMenuReportService.ERP_EMAIL_ROW_LIMIT,
+        );
+        const rows = items as unknown as PuDelvInItemRow[];
+        const plainReport = this.formatPuPlainText(rows, truncated);
+        const fullText = base ? `${base}\n${plainReport}` : plainReport.replace(/^\n+/, '');
+        const intro = base ? `${base}\n\n` : '';
+        const mailHtmlTableFragment = buildPuHtmlTableFragment(rows, truncated);
+        return {
+          text: fullText,
+          mailHtmlStructuredIntro: intro,
+          mailHtmlTableFragment,
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`메일 본문용 외주입고/반품 품목 조회 실패: ${msg}`);
+        const reportBlock = ['', `[ERP 조회 실패] ${msg}`].join('\n');
+        const fullText = base ? `${base}\n${reportBlock}` : reportBlock.replace(/^\n+/, '');
+        return { text: fullText };
+      }
+    })();
+  }
+
   private appendPuDelvInReport(
     body: string,
     _menu: { label: string; code: string },
@@ -696,6 +988,39 @@ export class MailMenuReportService {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         this.logger.warn(`메일 본문용 구매입고 품목 조회 실패: ${msg}`);
+        const reportBlock = ['', `[ERP 조회 실패] ${msg}`].join('\n');
+        const fullText = base ? `${base}\n${reportBlock}` : reportBlock.replace(/^\n+/, '');
+        return { text: fullText };
+      }
+    })();
+  }
+
+  private appendOspDelvItemsReport(
+    body: string,
+    _menu: { label: string; code: string },
+    today: string,
+  ): Promise<MailMenuReportAppendResult> {
+    const base = (body ?? '').trimEnd();
+
+    return (async () => {
+      try {
+        const { items, truncated } = await this.ospDelvItems.listByDelvDateRange(
+          today,
+          today,
+          MailMenuReportService.ERP_EMAIL_ROW_LIMIT,
+        );
+        const plainReport = this.formatOspPlainText(items, truncated);
+        const fullText = base ? `${base}\n${plainReport}` : plainReport.replace(/^\n+/, '');
+        const intro = base ? `${base}\n\n` : '';
+        const mailHtmlTableFragment = buildOspHtmlTableFragment(items, truncated);
+        return {
+          text: fullText,
+          mailHtmlStructuredIntro: intro,
+          mailHtmlTableFragment,
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`메일 본문용 외주납품 품목 조회 실패: ${msg}`);
         const reportBlock = ['', `[ERP 조회 실패] ${msg}`].join('\n');
         const fullText = base ? `${base}\n${reportBlock}` : reportBlock.replace(/^\n+/, '');
         return { text: fullText };
@@ -785,6 +1110,22 @@ export class MailMenuReportService {
     return lines.join('\n');
   }
 
+  private formatTslExpRetPlainText(items: TslExportReturnInvoiceItemRow[], truncated: boolean): string {
+    const lines: string[] = [];
+    if (items.length === 0) {
+      lines.push(ERP_MAIL_NO_ROWS_MESSAGE);
+    } else {
+      lines.push(TSL_EXP_RET_COLUMNS.map((c) => c.header).join('\t'));
+      for (const row of items) {
+        lines.push(TSL_EXP_RET_COLUMNS.map((c) => expRetMailCell(row, c.key)).join('\t'));
+      }
+      if (truncated) {
+        lines.push(`(행이 많아 상위 ${items.length}건만 표시했습니다.)`);
+      }
+    }
+    return lines.join('\n');
+  }
+
   private formatTslPlainText(items: TslInvoiceItemRow[], truncated: boolean): string {
     const lines: string[] = [];
     if (items.length === 0) {
@@ -841,6 +1182,22 @@ export class MailMenuReportService {
       lines.push(PDV_COLUMNS.map((c) => c.header).join('\t'));
       for (const row of items) {
         lines.push(PDV_COLUMNS.map((c) => pdvMailCell(row, c.key)).join('\t'));
+      }
+      if (truncated) {
+        lines.push(`(행이 많아 상위 ${items.length}건만 표시했습니다.)`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  private formatOspPlainText(items: OspDelvItemRow[], truncated: boolean): string {
+    const lines: string[] = [];
+    if (items.length === 0) {
+      lines.push(ERP_MAIL_NO_ROWS_MESSAGE);
+    } else {
+      lines.push(OSP_COLUMNS.map((c) => c.header).join('\t'));
+      for (const row of items) {
+        lines.push(OSP_COLUMNS.map((c) => ospMailCell(row, c.key)).join('\t'));
       }
       if (truncated) {
         lines.push(`(행이 많아 상위 ${items.length}건만 표시했습니다.)`);

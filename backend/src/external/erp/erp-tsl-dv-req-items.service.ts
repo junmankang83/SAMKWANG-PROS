@@ -4,7 +4,7 @@ import * as mssql from 'mssql';
 
 /**
  * 반품요청 품목 — `dbo._TSLDVReq` + `dbo._TSLDVReqItem`
- * `UMOutKind` = `_TDAUMinorValue` 에서 MajorSeq=8020, Serl=2002, ValueText='1' 인 MinorSeq 와 일치하는 건만.
+ * 헤더 `UMOutKind` 는 `_TDAUMinorValue` 에서 `MajorSeq=8020`, `Serl=2002`, `ValueText='1'`(trim) 인 행의 `MinorSeq` 집합과 `IN` 매칭합니다.
  * 조인·일자·문서키 컬럼은 INFORMATION_SCHEMA 로 감지합니다.
  */
 export type TslDvReqItemRow = {
@@ -13,7 +13,10 @@ export type TslDvReqItemRow = {
   reqSeq: number | null;
   reqNo: string | null;
   reqDate: string;
+  /** 출고구분 코드(UMOutKind) */
   umOutKind: number | null;
+  /** 출고구분 표시명 — `_TDAUMinorValue` 등에서 해석 */
+  outKindName: string | null;
   customerCode: string | null;
   customerName: string | null;
   deptName: string | null;
@@ -29,6 +32,10 @@ export type TslDvReqItemRow = {
   vatAmount: number | null;
   totalAmount: number | null;
   remark: string | null;
+  whName: string | null;
+  projectName: string | null;
+  dueDate: string | null;
+  progressStatus: string | null;
 };
 
 type SqlRow = {
@@ -53,6 +60,11 @@ type SqlRow = {
   LineTotal: number | null;
   LineRemark: string | null;
   LineMemo: string | null;
+  WHName: string | null;
+  PJTName: string | null;
+  DueDateRaw: string | null;
+  ProgressRaw: string | null;
+  OutKindText: string | null;
 };
 
 type ColMeta = { TABLE_NAME: string; COLUMN_NAME: string };
@@ -83,6 +95,14 @@ type DvReqSqlPlan = {
   domVatExpr: string;
   domAmtInner: string;
   domVatInner: string;
+  umOutKindFilterSql: string;
+  whJoin: string;
+  whSelect: string;
+  pjtJoin: string;
+  pjtSelect: string;
+  dueDateExpr: string;
+  progressSelect: string;
+  umKindApplySql: string;
 };
 
 const DEFAULT_LIMIT = 8000;
@@ -114,6 +134,16 @@ function toNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function ymdOrTextToIsoOrText(d: string | null): string | null {
+  const t = trimOrNull(d);
+  if (!t) return null;
+  if (/^\d{8}$/.test(t)) {
+    const iso = yyyymmddToIso(t);
+    return iso || t;
+  }
+  return t;
+}
+
 function mapRow(r: SqlRow): Omit<TslDvReqItemRow, 'rowNo'> {
   return {
     bizUnit: r.BizUnit == null ? null : Number(r.BizUnit),
@@ -121,6 +151,7 @@ function mapRow(r: SqlRow): Omit<TslDvReqItemRow, 'rowNo'> {
     reqNo: trimOrNull(r.ReqNoFmt),
     reqDate: yyyymmddToIso(r.ReqDateRaw),
     umOutKind: r.UMOutKind == null ? null : Number(r.UMOutKind),
+    outKindName: trimOrNull(r.OutKindText),
     customerCode: trimOrNull(r.CustNo),
     customerName: trimOrNull(r.CustName),
     deptName: trimOrNull(r.DeptName),
@@ -136,6 +167,10 @@ function mapRow(r: SqlRow): Omit<TslDvReqItemRow, 'rowNo'> {
     vatAmount: toNumber(r.DomVAT),
     totalAmount: toNumber(r.LineTotal),
     remark: trimOrNull(r.LineRemark) ?? trimOrNull(r.LineMemo),
+    whName: trimOrNull(r.WHName),
+    projectName: trimOrNull(r.PJTName),
+    dueDate: ymdOrTextToIsoOrText(r.DueDateRaw),
+    progressStatus: trimOrNull(r.ProgressRaw),
   };
 }
 
@@ -262,14 +297,129 @@ function buildPlan(cols: ColMeta[]): DvReqSqlPlan {
   }
 
   const lineQtyExpr = hasCol(set, '_TSLDVReqItem', 'Qty') ? 'i.Qty AS Qty' : 'CAST(NULL AS decimal(18, 6)) AS Qty';
-  const domAmtInner = hasCol(set, '_TSLDVReqItem', 'DomAmt') ? 'i.DomAmt' : 'CAST(NULL AS decimal(18, 4))';
-  const domVatInner = hasCol(set, '_TSLDVReqItem', 'DomVAT') ? 'i.DomVAT' : 'CAST(NULL AS decimal(18, 4))';
+  const domAmtInner = hasCol(set, '_TSLDVReqItem', 'DomAmt')
+    ? 'i.DomAmt'
+    : hasCol(set, '_TSLDVReqItem', 'SupplyAmt')
+      ? 'i.SupplyAmt'
+      : hasCol(set, '_TSLDVReqItem', 'SplyAmt')
+        ? 'i.SplyAmt'
+        : hasCol(set, '_TSLDVReqItem', 'SupplyAmount')
+          ? 'i.SupplyAmount'
+          : 'CAST(NULL AS decimal(18, 4))';
+  const domVatInner = hasCol(set, '_TSLDVReqItem', 'DomVAT')
+    ? 'i.DomVAT'
+    : hasCol(set, '_TSLDVReqItem', 'VAT')
+      ? 'i.VAT'
+      : hasCol(set, '_TSLDVReqItem', 'VATAmt')
+        ? 'i.VATAmt'
+        : 'CAST(NULL AS decimal(18, 4))';
   const domAmtExpr = `${domAmtInner} AS DomAmt`;
   const domVatExpr = `${domVatInner} AS DomVAT`;
 
   if (!hasCol(set, '_TSLDVReq', 'UMOutKind')) {
     throw new BadRequestException('_TSLDVReq 테이블에 UMOutKind 컬럼이 없습니다.');
   }
+
+  const mvMajor = pickCol(cols, '_TDAUMinorValue', ['MajorSeq', 'MAJORSEQ']);
+  const mvSerl = pickCol(cols, '_TDAUMinorValue', ['Serl', 'SERL']);
+  const mvMinor = pickCol(cols, '_TDAUMinorValue', ['MinorSeq', 'MINORSEQ']);
+  const mvVt = pickCol(cols, '_TDAUMinorValue', ['ValueText', 'VALUETEXT']);
+  if (!mvMajor || !mvSerl || !mvMinor || !mvVt) {
+    throw new BadRequestException(
+      '_TDAUMinorValue 에서 MajorSeq·Serl·MinorSeq·ValueText 컬럼을 찾지 못했습니다. UMOutKind 반품 필터를 적용할 수 없습니다.',
+    );
+  }
+  const mvComp = hasCol(set, '_TDAUMinorValue', 'CompanySeq') ? 'AND (m.CompanySeq = h.CompanySeq OR m.CompanySeq IS NULL)' : '';
+  const vtEsc = UM_MINOR_VALUE_TEXT.replace(/'/g, "''");
+  const umOutKindFilterSql = `CAST(h.UMOutKind AS NVARCHAR(50)) IN (
+    SELECT CAST(m.[${mvMinor}] AS NVARCHAR(50))
+    FROM dbo.[_TDAUMinorValue] m
+    WHERE m.[${mvMajor}] = ${UM_MINOR_MAJOR}
+      AND m.[${mvSerl}] = ${UM_MINOR_SERL}
+      AND LTRIM(RTRIM(CAST(m.[${mvVt}] AS NVARCHAR(200)))) = N'${vtEsc}'
+      ${mvComp}
+  )`;
+
+  const mvCompUmk = hasCol(set, '_TDAUMinorValue', 'CompanySeq')
+    ? 'AND (umk.CompanySeq = h.CompanySeq OR umk.CompanySeq IS NULL)'
+    : '';
+  const mvMinorName = pickCol(cols, '_TDAUMinorValue', ['MinorName', 'MINORNAME', 'UMinorName', 'MinorDesc']);
+  const outKindCoalesce = mvMinorName
+    ? `COALESCE(LTRIM(RTRIM(CAST(umk.[${mvMinorName}] AS NVARCHAR(200)))), LTRIM(RTRIM(CAST(umk.[${mvVt}] AS NVARCHAR(200)))))`
+    : `LTRIM(RTRIM(CAST(umk.[${mvVt}] AS NVARCHAR(200))))`;
+  const umKindApplySql = `OUTER APPLY (
+    SELECT TOP (1) ${outKindCoalesce} AS OutKindText
+    FROM dbo.[_TDAUMinorValue] umk
+    WHERE umk.[${mvMajor}] = ${UM_MINOR_MAJOR}
+      AND CAST(umk.[${mvMinor}] AS NVARCHAR(50)) = CAST(h.UMOutKind AS NVARCHAR(50))
+      ${mvCompUmk}
+  ) umn`;
+
+  const iWh = pickCol(cols, '_TSLDVReqItem', ['WHSeq', 'OutWHSeq', 'PlaceWHSeq', 'StkWHSeq']);
+  const hWh = pickCol(cols, '_TSLDVReq', ['WHSeq', 'OutWHSeq', 'FromWHSeq', 'StkWHSeq']);
+  let whExpr: string | null = null;
+  if (iWh) {
+    whExpr = `NULLIF(i.[${iWh}], 0)`;
+  } else if (hWh) {
+    whExpr = `NULLIF(h.[${hWh}], 0)`;
+  }
+  const hasWhTable = cols.some((c) => c.TABLE_NAME === '_TDAWH');
+  const whJoin =
+    whExpr && hasWhTable
+      ? `LEFT JOIN dbo.[_TDAWH] wh ON h.CompanySeq = wh.CompanySeq AND wh.WHSeq = ${whExpr}`
+      : '';
+  const whSelect =
+    whJoin.trim().length > 0 ? 'wh.WHName AS WHName' : 'CAST(NULL AS nvarchar(200)) AS WHName';
+
+  const iPjt = pickCol(cols, '_TSLDVReqItem', ['PJTSeq', 'ProjectSeq']);
+  const hPjt = pickCol(cols, '_TSLDVReq', ['PJTSeq', 'ProjectSeq']);
+  let pjtExpr: string | null = null;
+  if (iPjt && hPjt) {
+    pjtExpr = `COALESCE(NULLIF(i.[${iPjt}], 0), NULLIF(h.[${hPjt}], 0))`;
+  } else if (iPjt) {
+    pjtExpr = `NULLIF(i.[${iPjt}], 0)`;
+  } else if (hPjt) {
+    pjtExpr = `NULLIF(h.[${hPjt}], 0)`;
+  }
+  const pjtPk = pickCol(cols, '_TPJTProject', ['PJTSeq', 'ProjectSeq']);
+  const hasPjtTable = cols.some((c) => c.TABLE_NAME === '_TPJTProject');
+  const pjtNameCol = pickCol(cols, '_TPJTProject', ['PJTName', 'ProjectName']);
+  const pjtNoCol = pickCol(cols, '_TPJTProject', ['PJTNo', 'ProjectNo']);
+  const pjtJoin =
+    pjtExpr && hasPjtTable && pjtPk
+      ? `LEFT JOIN dbo.[_TPJTProject] pjt ON h.CompanySeq = pjt.CompanySeq AND pjt.[${pjtPk}] = ${pjtExpr}`
+      : '';
+  let pjtSelect = 'CAST(NULL AS nvarchar(200)) AS PJTName';
+  if (pjtJoin.trim().length > 0) {
+    if (pjtNameCol && pjtNoCol) {
+      pjtSelect = `COALESCE(LTRIM(RTRIM(CAST(pjt.[${pjtNameCol}] AS NVARCHAR(200)))), LTRIM(RTRIM(CAST(pjt.[${pjtNoCol}] AS NVARCHAR(120))))) AS PJTName`;
+    } else if (pjtNameCol) {
+      pjtSelect = `LTRIM(RTRIM(CAST(pjt.[${pjtNameCol}] AS NVARCHAR(200)))) AS PJTName`;
+    } else if (pjtNoCol) {
+      pjtSelect = `LTRIM(RTRIM(CAST(pjt.[${pjtNoCol}] AS NVARCHAR(120)))) AS PJTName`;
+    }
+  }
+
+  const dueI = pickCol(cols, '_TSLDVReqItem', ['DueDate', 'ReqDueDate', 'DelivDate', 'DeliveryDate', 'LimitDate']);
+  const dueH = pickCol(cols, '_TSLDVReq', ['DueDate', 'ReqDueDate', 'DelivDate', 'DeliveryDate', 'LimitDate']);
+  const dueDateExpr = dueI
+    ? `LTRIM(RTRIM(CAST(i.[${dueI}] AS NVARCHAR(30)))) AS DueDateRaw`
+    : dueH
+      ? `LTRIM(RTRIM(CAST(h.[${dueH}] AS NVARCHAR(30)))) AS DueDateRaw`
+      : `CAST(NULL AS nvarchar(30)) AS DueDateRaw`;
+
+  const progH = pickCol(cols, '_TSLDVReq', [
+    'ReqStatus',
+    'Status',
+    'DocStatus',
+    'SlipStat',
+    'ProgressStat',
+    'Stat',
+    'UMStatus',
+  ]);
+  const progressSelect = progH
+    ? `LTRIM(RTRIM(CAST(h.[${progH}] AS NVARCHAR(100)))) AS ProgressRaw`
+    : `CAST(NULL AS nvarchar(100)) AS ProgressRaw`;
 
   return {
     joinSeq,
@@ -297,6 +447,14 @@ function buildPlan(cols: ColMeta[]): DvReqSqlPlan {
     domVatExpr,
     domAmtInner,
     domVatInner,
+    umOutKindFilterSql,
+    whJoin,
+    whSelect,
+    pjtJoin,
+    pjtSelect,
+    dueDateExpr,
+    progressSelect,
+    umKindApplySql,
   };
 }
 
@@ -382,12 +540,15 @@ export class ErpTslDvReqItemsService {
       SELECT c.TABLE_NAME AS TABLE_NAME, c.COLUMN_NAME AS COLUMN_NAME
       FROM INFORMATION_SCHEMA.COLUMNS c
       WHERE c.TABLE_SCHEMA = N'dbo'
-        AND c.TABLE_NAME IN (N'_TSLDVReq', N'_TSLDVReqItem', N'_TDAItem', N'_TDAUnit')
+        AND c.TABLE_NAME IN (
+          N'_TSLDVReq', N'_TSLDVReqItem', N'_TDAItem', N'_TDAUnit',
+          N'_TDACust', N'_TDADept', N'_TDAEmp', N'_TDAWH', N'_TPJTProject', N'_TDAUMinorValue'
+        )
     `);
     const rows = meta.recordset ?? [];
     this.sqlPlan = buildPlan(rows);
     this.logger.log(
-      `TSL DV Req SQL plan: join=${this.sqlPlan.joinSeq} date=${this.sqlPlan.dateCol} lineSerl=${this.sqlPlan.lineSerlCol}`,
+      `TSL DV Req SQL plan: join=${this.sqlPlan.joinSeq} date=${this.sqlPlan.dateCol} lineSerl=${this.sqlPlan.lineSerlCol} UMOutKind=IN(MinorSeq @ MajorSeq=${UM_MINOR_MAJOR},Serl=${UM_MINOR_SERL},ValueText='${UM_MINOR_VALUE_TEXT}')`,
     );
     return this.sqlPlan;
   }
@@ -464,10 +625,6 @@ export class ErpTslDvReqItemsService {
     }
     const whereTail = whereExtra.length ? ` AND ${whereExtra.join(' AND ')}` : '';
 
-    const umMatchSql = `(SELECT TOP 1 m.MinorSeq FROM dbo.[_TDAUMinorValue] m
-      WHERE m.MajorSeq = ${UM_MINOR_MAJOR} AND m.Serl = ${UM_MINOR_SERL}
-        AND LTRIM(RTRIM(CAST(m.ValueText AS NVARCHAR(200)))) = N'${UM_MINOR_VALUE_TEXT.replace(/'/g, "''")}')`;
-
     const sql = `
       SELECT TOP (@fetchCount)
         h.BizUnit AS BizUnit,
@@ -490,7 +647,12 @@ export class ErpTslDvReqItemsService {
         ${plan.domVatExpr},
         CAST(ISNULL(${plan.domAmtInner}, 0) + ISNULL(${plan.domVatInner}, 0) AS decimal(18, 4)) AS LineTotal,
         ${plan.lineRemarkSelect},
-        ${plan.lineMemoSelect}
+        ${plan.lineMemoSelect},
+        ${plan.whSelect},
+        ${plan.pjtSelect},
+        ${plan.dueDateExpr},
+        ${plan.progressSelect},
+        umn.OutKindText AS OutKindText
       FROM dbo.[_TSLDVReq] h
       INNER JOIN dbo.[_TSLDVReqItem] i
         ON h.CompanySeq = i.CompanySeq AND h.[${plan.joinSeq}] = i.[${plan.joinSeq}]
@@ -499,9 +661,12 @@ export class ErpTslDvReqItemsService {
       ${plan.empJoin}
       ${plan.itemJoin}
       ${plan.unitJoin}
+      ${plan.whJoin}
+      ${plan.pjtJoin}
+      ${plan.umKindApplySql}
       WHERE LTRIM(RTRIM(h.[${plan.dateCol}])) >= @fromYmd
         AND LTRIM(RTRIM(h.[${plan.dateCol}])) <= @toYmd
-        AND h.UMOutKind = ${umMatchSql}
+        AND ${plan.umOutKindFilterSql}
         ${whereTail}
       ORDER BY LTRIM(RTRIM(h.[${plan.dateCol}])) ASC, h.CompanySeq ASC, h.[${plan.joinSeq}] ASC, i.[${plan.lineSerlCol}] ASC
     `;

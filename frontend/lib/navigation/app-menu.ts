@@ -43,6 +43,12 @@ export const APP_DOMAINS: AppDomainMenu[] = [
       { label: '부품출고', href: '/app/production/outbound', icon: 'mdi:tray-arrow-up' },
       { label: '부품 입출고 대장', href: '/app/production/ledger', icon: 'mdi:book-open-page-variant-outline' },
       { label: '재고현황', href: '/app/production/inventory', icon: 'mdi:archive-outline' },
+      { label: '이동품목조회', href: '/app/production/lg-inout-move-items', icon: 'mdi:truck-delivery-outline' },
+      {
+        label: '일자별판매실적분석',
+        href: '/app/production/tsl-sales-daily-analysis',
+        icon: 'mdi:chart-line-variant',
+      },
     ],
   },
   {

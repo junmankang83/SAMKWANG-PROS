@@ -5,14 +5,22 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { isTslInvoiceItemsMailMenu } from '@/lib/mail/tsl-invoice-items-menu';
 import { isTslExportInvoiceItemsMailMenu } from '@/lib/mail/tsl-export-invoice-items-menu';
+import { isTslExportReturnInvoiceItemsMailMenu } from '@/lib/mail/tsl-export-return-invoice-items-menu';
 import { isTslDvReqItemsMailMenu } from '@/lib/mail/tsl-dv-req-items-menu';
 import { isPuDelvInItemsMailMenu } from '@/lib/mail/pu-delv-in-items-menu';
+import { isOspDelvInItemsMailMenu } from '@/lib/mail/osp-delv-in-items-menu';
 import { isPuDelvItemsMailMenu } from '@/lib/mail/pu-delv-items-menu';
+import { isOspDelvItemsMailMenu } from '@/lib/mail/osp-delv-items-menu';
+import { isLgInoutMoveItemsMailMenu } from '@/lib/mail/lg-inout-move-items-menu';
 import { TslInvoiceItemInquiry } from '@/components/TslInvoiceItemInquiry';
 import { TslExportInvoiceItemInquiry } from '@/components/TslExportInvoiceItemInquiry';
+import { TslExportReturnInvoiceItemInquiry } from '@/components/TslExportReturnInvoiceItemInquiry';
 import { TslDvReqItemInquiry } from '@/components/TslDvReqItemInquiry';
 import { PuDelvInItemInquiry } from '@/components/PuDelvInItemInquiry';
+import { OspDelvInItemInquiry } from '@/components/OspDelvInItemInquiry';
 import { PuDelvItemInquiry } from '@/components/PuDelvItemInquiry';
+import { OspDelvItemInquiry } from '@/components/OspDelvItemInquiry';
+import { LgInoutMoveItemInquiry } from '@/components/LgInoutMoveItemInquiry';
 
 type MenuDetail = {
   id: string;
@@ -116,12 +124,20 @@ export function MailSendingMenuView() {
         <h1 className="text-xl font-semibold text-app-text">{row.label}</h1>
       </div>
 
-      {isTslInvoiceItemsMailMenu(row) ? (
-        <TslInvoiceItemInquiry embedded />
-      ) : isTslExportInvoiceItemsMailMenu(row) ? (
-        <TslExportInvoiceItemInquiry embedded />
+      {isLgInoutMoveItemsMailMenu(row) ? (
+        <LgInoutMoveItemInquiry embedded />
+      ) : isOspDelvInItemsMailMenu(row) ? (
+        <OspDelvInItemInquiry embedded />
+      ) : isTslExportReturnInvoiceItemsMailMenu(row) ? (
+        <TslExportReturnInvoiceItemInquiry embedded />
       ) : isTslDvReqItemsMailMenu(row) ? (
         <TslDvReqItemInquiry embedded />
+      ) : isOspDelvItemsMailMenu(row) ? (
+        <OspDelvItemInquiry embedded />
+      ) : isTslExportInvoiceItemsMailMenu(row) ? (
+        <TslExportInvoiceItemInquiry embedded />
+      ) : isTslInvoiceItemsMailMenu(row) ? (
+        <TslInvoiceItemInquiry embedded />
       ) : isPuDelvItemsMailMenu(row) ? (
         <PuDelvItemInquiry embedded />
       ) : isPuDelvInItemsMailMenu(row) ? (

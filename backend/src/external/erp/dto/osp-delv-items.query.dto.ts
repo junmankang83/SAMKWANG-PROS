@@ -1,23 +1,19 @@
 import { Type, Transform } from 'class-transformer';
 import { IsBoolean, IsDateString, IsOptional, Max, Min } from 'class-validator';
 
-export class PuDelvItemsQueryDto {
-  /** 시작일 (YYYY-MM-DD), 헤더 납품일(nchar YYYYMMDD) 구간 필터 */
+export class OspDelvItemsQueryDto {
   @IsDateString()
   from!: string;
 
-  /** 종료일 (YYYY-MM-DD) */
   @IsDateString()
   to!: string;
 
-  /** 최대 반환 행 (기본 8000, 상한 10000) */
   @IsOptional()
   @Type(() => Number)
   @Min(1)
   @Max(10_000)
   limit?: number;
 
-  /** true이면 응답에 `_TPUDelv`/라인의 `SMExpKind` 컬럼 존재 여부 및 필터 적용 여부(`schemaMeta`) 포함 */
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true' || value === 1 || value === '1')
   @IsBoolean()

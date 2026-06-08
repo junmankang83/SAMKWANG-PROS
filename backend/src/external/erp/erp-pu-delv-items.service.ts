@@ -4,7 +4,8 @@ import * as mssql from 'mssql';
 
 /**
  * 구매납품 품목 조회 — `dbo._TPUDelv` + `dbo._TPUDelvItem`(또는 `TPUDelvItem`).
- * 엑셀「구매납품품목조회」50개 데이터 열 순서(선택 열 제외)에 맞춥니다. 컬럼명은 INFORMATION_SCHEMA로 감지합니다.
+ * 엑셀「구매납품품목조회」·ERP「외주납품품목조회」 등 50개 데이터 열 순서(선택 열 제외)에 맞춥니다.
+ * 수출품은 `SMExpKind` = `8009004`(거래명세와 동일)인 경우만 WHERE에서 제외합니다. 컬럼명은 INFORMATION_SCHEMA로 감지합니다.
  */
 export type PuDelvItemRow = {
   /** 조회 결과 표시 순번(1부터) */
@@ -59,6 +60,20 @@ export type PuDelvItemRow = {
   itemClassL: string | null;
   itemClassM: string | null;
   itemClassS: string | null;
+};
+
+/** `GET /api/erp/pu-delv-items?schemaMeta=true` 응답에만 포함 */
+export type PuDelvItemsSchemaMeta = {
+  smExpKindOnHeader: boolean;
+  smExpKindOnLine: boolean;
+  /** 헤더 또는 라인에 `SMExpKind` 컬럼이 있어 8009004 제외 WHERE가 붙는지 */
+  smExpKindFilterApplied: boolean;
+};
+
+export type PuDelvItemsListResult = {
+  items: PuDelvItemRow[];
+  truncated: boolean;
+  schemaMeta?: PuDelvItemsSchemaMeta;
 };
 
 type SqlRow = {
@@ -166,6 +181,10 @@ type PuDelvOutSqlPlan = {
   itemClassLSql: string;
   itemClassMSql: string;
   itemClassSSql: string;
+  /** 수출 제외: `SMExpKind` = `8009004` 가 아닌 행만(헤더·라인 컬럼이 있으면 각각 적용, 없으면 빈 문자열) */
+  exportExcludeWhereSql: string;
+  smExpKindOnHeader: boolean;
+  smExpKindOnLine: boolean;
 };
 
 function trimOrNull(v: unknown): string | null {
@@ -260,6 +279,20 @@ const MAX_RANGE_DAYS = 400;
 
 function bracketIdent(name: string): string {
   return `[${name.replace(/\]/g, ']]')}]`;
+}
+
+/** `_TPUDelv` / 라인 — 거래명세 `_TSLInvoice`와 동일한 수출 구분 코드 */
+const PU_DELV_EXCLUDED_SM_EXP_KIND = '8009004';
+
+/** `SMExpKind` 가 수출 코드가 아닌 행만 남김(NULL·공백·그 외 코드는 포함). 컬럼 없으면 빈 문자열 반환 */
+function smExpKindNotExportWhere(alias: 'h' | 'i', colName: string | null): string {
+  if (!colName) return '';
+  const c = bracketIdent(colName);
+  return ` AND (
+    ${alias}.${c} IS NULL
+    OR LTRIM(RTRIM(CAST(${alias}.${c} AS NVARCHAR(50)))) = N''
+    OR LTRIM(RTRIM(CAST(${alias}.${c} AS NVARCHAR(50)))) <> N'${PU_DELV_EXCLUDED_SM_EXP_KIND}'
+  )`;
 }
 
 async function listColumns(
@@ -617,6 +650,11 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
     locForKindExpr = `LTRIM(RTRIM(CAST(h.${bracketIdent(locForHCol)} AS NVARCHAR(40))))`;
   }
 
+  const hSmExpKindCol = pickColumn(hCols, ['SMExpKind']);
+  const iSmExpKindCol = pickColumn(iCols, ['SMExpKind']);
+  const exportExcludeWhereSql =
+    smExpKindNotExportWhere('h', hSmExpKindCol) + smExpKindNotExportWhere('i', iSmExpKindCol);
+
   const makerNameCol = pickColumn(itCols, ['MakerName', 'MfgName', 'ManufName', 'MakeCustName']);
   const makerNameSql = makerNameCol
     ? `LTRIM(RTRIM(CAST(it.${bracketIdent(makerNameCol)} AS NVARCHAR(200))))`
@@ -676,7 +714,7 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
   );
 
   logger.log(
-    `PU Delv schema: item=${itemTable}, date=${hDate}, no=${hNo}, seq=${hSeq}/${iSeq}, serl=${iSerl}, poJoin=${Boolean(poJoin)}`,
+    `PU Delv schema: item=${itemTable}, date=${hDate}, no=${hNo}, seq=${hSeq}/${iSeq}, serl=${iSerl}, poJoin=${Boolean(poJoin)}, SMExpKind h=${Boolean(hSmExpKindCol)} i=${Boolean(iSmExpKindCol)}`,
   );
 
   return {
@@ -729,6 +767,9 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
     itemClassLSql,
     itemClassMSql,
     itemClassSSql,
+    exportExcludeWhereSql,
+    smExpKindOnHeader: hSmExpKindCol != null,
+    smExpKindOnLine: iSmExpKindCol != null,
   };
 }
 
@@ -806,6 +847,7 @@ function buildSelectSql(plan: PuDelvOutSqlPlan, whereTail: string): string {
       ${plan.poJoin}
       WHERE LTRIM(RTRIM(h.${bracketIdent(plan.hDate)})) >= @fromYmd
         AND LTRIM(RTRIM(h.${bracketIdent(plan.hDate)})) <= @toYmd
+        ${plan.exportExcludeWhereSql}
         ${whereTail}
       ORDER BY LTRIM(RTRIM(h.${bracketIdent(plan.hDate)})) ASC, h.CompanySeq ASC, h.${bracketIdent(plan.hSeq)} ASC, i.${bracketIdent(plan.iSerl)} ASC
     `;
@@ -902,7 +944,8 @@ export class ErpPuDelvItemsService {
     fromIso: string,
     toIso: string,
     limit?: number,
-  ): Promise<{ items: PuDelvItemRow[]; truncated: boolean }> {
+    includeSchemaMeta?: boolean,
+  ): Promise<PuDelvItemsListResult> {
     const parseLocal = (s: string): Date | null => {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
       if (!m) return null;
@@ -984,9 +1027,15 @@ export class ErpPuDelvItemsService {
     const raw = result.recordset ?? [];
     const truncated = raw.length > maxRows;
     const slice = truncated ? raw.slice(0, maxRows) : raw;
-    return {
-      items: slice.map((r, i) => ({ ...mapRow(r), rowNo: i + 1 })),
-      truncated,
-    };
+    const items = slice.map((r, i) => ({ ...mapRow(r), rowNo: i + 1 }));
+    const base: PuDelvItemsListResult = { items, truncated };
+    if (includeSchemaMeta) {
+      base.schemaMeta = {
+        smExpKindOnHeader: plan.smExpKindOnHeader,
+        smExpKindOnLine: plan.smExpKindOnLine,
+        smExpKindFilterApplied: plan.smExpKindOnHeader || plan.smExpKindOnLine,
+      };
+    }
+    return base;
   }
 }
