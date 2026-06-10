@@ -352,3 +352,10 @@ model MailSendLog {
 
   @@index([ruleId, sentAt])
 }
+
+/// 애플리케이션 전역 설정 (key-value JSON). 예: `nav_domain_visibility`
+model AppConfigEntry {
+  key       String   @id @db.VarChar(120)
+  value     Json
+  updatedAt DateTime @updatedAt
+}

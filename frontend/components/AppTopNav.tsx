@@ -6,8 +6,9 @@ import { Icon } from '@iconify/react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { UserProfileDialog } from '@/components/UserProfileDialog';
+import { useNavVisibility } from '@/components/NavVisibilityContext';
 import { APP_DOMAINS } from '@/lib/navigation/app-menu';
 
 const navLinkBase =
@@ -25,7 +26,7 @@ function UserAvatarIcon() {
       className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/12 text-brand"
       aria-hidden
     >
-      <Icon icon="mdi:account-circle" className="h-[18px] w-[18px]" />
+      <Icon icon="mdi:account-tie-outline" className="h-5 w-5 shrink-0" aria-hidden />
     </span>
   );
 }
@@ -38,6 +39,12 @@ export function AppTopNav({ user }: AppTopNavProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
+  const { visibility } = useNavVisibility();
+
+  const visibleDomains = useMemo(
+    () => APP_DOMAINS.filter((d) => visibility[d.id] === true),
+    [visibility],
+  );
 
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
@@ -52,7 +59,7 @@ export function AppTopNav({ user }: AppTopNavProps) {
           <Link
             href="/app"
             className={`${navLinkIdle} shrink-0 gap-2 font-semibold`}
-            aria-label="SAMKWANG-PROS 홈"
+            aria-label="ERP INFO MAILER 홈"
           >
             <Image
               src="/samkwang-logo.png"
@@ -62,13 +69,15 @@ export function AppTopNav({ user }: AppTopNavProps) {
               className="h-7 w-auto max-h-7 shrink-0 object-contain"
               priority
             />
-            <span className="whitespace-nowrap">SAMKWANG-PROS</span>
+            <span className="whitespace-nowrap text-sm font-semibold tracking-wide text-app-text sm:text-base">
+              ERP INFO MAILER
+            </span>
           </Link>
           <nav
             className="flex min-w-0 flex-wrap items-center gap-1"
             aria-label="주 메뉴"
           >
-            {APP_DOMAINS.map((d) => {
+            {visibleDomains.map((d) => {
               const active =
                 pathname === d.basePath || pathname.startsWith(`${d.basePath}/`);
               return (

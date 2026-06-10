@@ -9,7 +9,14 @@ import {
   CardContent,
   Input,
 } from '@samkwang/ui-kit';
-import { EIS_TABLE_SCROLL_WRAP, EIS_TD, EIS_TD_LEFT, EIS_TD_NUM } from '@/lib/eis-report-table-classes';
+import {
+  EIS_TABLE_SCROLL_WRAP,
+  EIS_TD,
+  EIS_TD_LEFT,
+  EIS_TD_NUM,
+  EIS_TH,
+} from '@/lib/eis-report-table-classes';
+import { defaultMailSendingMenuInquiryDateRange, defaultMonthStartToTodayRange } from '@/lib/erp/inquiry-default-date-range';
 import { useCallback, useMemo, useState } from 'react';
 
 /** 백엔드 `TslSalesDailyAnalysisRow` — ERP 일자별판매실적분석 열 순서 */
@@ -52,9 +59,6 @@ type TslSalesDailyAnalysisRow = {
   shipSerl: string | null;
 };
 
-const TH_GREEN =
-  'whitespace-nowrap border border-black bg-emerald-700 px-1.5 py-2 text-center text-[11px] font-bold text-white';
-
 async function readApiError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
   const m = body?.message;
@@ -65,13 +69,6 @@ async function readApiError(res: Response): Promise<string> {
     return m;
   }
   return `요청 실패 (${res.status})`;
-}
-
-function toYmd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 function formatNumber(n: number | null | undefined): string {
@@ -95,11 +92,10 @@ export type TslSalesDailyAnalysisInquiryProps = {
 const EMPTY_COLSPAN = 36;
 
 export function TslSalesDailyAnalysisInquiry({ embedded = false }: TslSalesDailyAnalysisInquiryProps) {
-  const defaults = useMemo(() => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: toYmd(start), to: toYmd(today) };
-  }, []);
+  const defaults = useMemo(
+    () => (embedded ? defaultMailSendingMenuInquiryDateRange() : defaultMonthStartToTodayRange()),
+    [embedded],
+  );
 
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
@@ -182,44 +178,44 @@ export function TslSalesDailyAnalysisInquiry({ embedded = false }: TslSalesDaily
 
           <div className={EIS_TABLE_SCROLL_WRAP}>
             <table className="min-w-max border-collapse">
-              <thead className="sticky top-0 z-10">
+              <thead className="sticky top-0 z-10 bg-[#E7E6E6]">
                 <tr>
-                  <th className={TH_GREEN}>순번</th>
-                  <th className={TH_GREEN}>구분</th>
-                  <th className={TH_GREEN}>업체번호</th>
-                  <th className={TH_GREEN}>업체일자</th>
-                  <th className={TH_GREEN}>거래처</th>
-                  <th className={TH_GREEN}>거래처사업부</th>
-                  <th className={TH_GREEN}>영업구분</th>
-                  <th className={TH_GREEN}>품목계정</th>
-                  <th className={TH_GREEN}>부서</th>
-                  <th className={TH_GREEN}>담당자</th>
-                  <th className={TH_GREEN}>품명</th>
-                  <th className={TH_GREEN}>규격</th>
-                  <th className={TH_GREEN}>단위</th>
-                  <th className={TH_GREEN}>수량</th>
-                  <th className={TH_GREEN}>단가</th>
-                  <th className={TH_GREEN}>공급가액(외화)</th>
-                  <th className={TH_GREEN}>통화</th>
-                  <th className={TH_GREEN}>환율</th>
-                  <th className={TH_GREEN}>원화가액</th>
-                  <th className={TH_GREEN}>판매가액</th>
-                  <th className={TH_GREEN}>공급가액</th>
-                  <th className={TH_GREEN}>부가세액</th>
-                  <th className={TH_GREEN}>합계금액</th>
-                  <th className={TH_GREEN}>원가단가(외화)</th>
-                  <th className={TH_GREEN}>원가단가(원화)</th>
-                  <th className={TH_GREEN}>원가금액(원화)</th>
-                  <th className={TH_GREEN}>품목코드</th>
-                  <th className={TH_GREEN}>품목분류</th>
-                  <th className={TH_GREEN}>품목그룹</th>
-                  <th className={TH_GREEN}>영업그룹</th>
-                  <th className={TH_GREEN}>수주번호</th>
-                  <th className={TH_GREEN}>수주순번</th>
-                  <th className={TH_GREEN}>지시번호</th>
-                  <th className={TH_GREEN}>지시순번</th>
-                  <th className={TH_GREEN}>출고번호</th>
-                  <th className={TH_GREEN}>출고순번</th>
+                  <th className={EIS_TH}>순번</th>
+                  <th className={EIS_TH}>구분</th>
+                  <th className={EIS_TH}>업체번호</th>
+                  <th className={EIS_TH}>업체일자</th>
+                  <th className={EIS_TH}>거래처</th>
+                  <th className={EIS_TH}>거래처사업부</th>
+                  <th className={EIS_TH}>영업구분</th>
+                  <th className={EIS_TH}>품목계정</th>
+                  <th className={EIS_TH}>부서</th>
+                  <th className={EIS_TH}>담당자</th>
+                  <th className={EIS_TH}>품명</th>
+                  <th className={EIS_TH}>규격</th>
+                  <th className={EIS_TH}>단위</th>
+                  <th className={EIS_TH}>수량</th>
+                  <th className={EIS_TH}>단가</th>
+                  <th className={EIS_TH}>공급가액(외화)</th>
+                  <th className={EIS_TH}>통화</th>
+                  <th className={EIS_TH}>환율</th>
+                  <th className={EIS_TH}>원화가액</th>
+                  <th className={EIS_TH}>판매가액</th>
+                  <th className={EIS_TH}>공급가액</th>
+                  <th className={EIS_TH}>부가세액</th>
+                  <th className={EIS_TH}>합계금액</th>
+                  <th className={EIS_TH}>원가단가(외화)</th>
+                  <th className={EIS_TH}>원가단가(원화)</th>
+                  <th className={EIS_TH}>원가금액(원화)</th>
+                  <th className={EIS_TH}>품목코드</th>
+                  <th className={EIS_TH}>품목분류</th>
+                  <th className={EIS_TH}>품목그룹</th>
+                  <th className={EIS_TH}>영업그룹</th>
+                  <th className={EIS_TH}>수주번호</th>
+                  <th className={EIS_TH}>수주순번</th>
+                  <th className={EIS_TH}>지시번호</th>
+                  <th className={EIS_TH}>지시순번</th>
+                  <th className={EIS_TH}>출고번호</th>
+                  <th className={EIS_TH}>출고순번</th>
                 </tr>
               </thead>
               <tbody>

@@ -163,6 +163,8 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
   const [sendExtraRecipients, setSendExtraRecipients] = useState<string[]>([]);
   const [sendExtraDaysMask, setSendExtraDaysMask] = useState(127);
   const [sendExtraTimes, setSendExtraTimes] = useState<string[]>([]);
+  /** 발송 추가 — 기본 제목(메뉴 선택 시 메뉴명으로 채움, 수정 가능) */
+  const [sendDialogDefaultSubject, setSendDialogDefaultSubject] = useState('');
   const [scheduleAutoBusyId, setScheduleAutoBusyId] = useState<string | null>(null);
   const [manualSendBusyId, setManualSendBusyId] = useState<string | null>(null);
 
@@ -213,6 +215,17 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
 
   const sortedMenus = [...rows].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
 
+  const selectedSendMenu = useMemo(() => rows.find((r) => r.id === sendMenuId), [rows, sendMenuId]);
+
+  useEffect(() => {
+    if (!sendMenuId) {
+      setSendDialogDefaultSubject('');
+      return;
+    }
+    const label = selectedSendMenu?.label?.trim() ?? '';
+    setSendDialogDefaultSubject(label);
+  }, [sendMenuId, selectedSendMenu?.label]);
+
   const sortedDispatchRows = useMemo(
     () => [...rows].filter(hasCompleteSendSchedule).sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code)),
     [rows],
@@ -226,6 +239,7 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
     setSendExtraRecipients([]);
     setSendExtraDaysMask(127);
     setSendExtraTimes([]);
+    setSendDialogDefaultSubject('');
     setSendDialogOpen(true);
     setSendBusy(true);
     try {
@@ -419,11 +433,14 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
     setSendBusy(true);
     setSendError(null);
     try {
+      const defaultSubject =
+        sendDialogDefaultSubject.trim() || selectedSendMenu?.label.trim() || '';
       const patchRes = await fetch(`/api/mail/menus/${sendMenuId}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...(defaultSubject ? { defaultSubject } : {}),
           recipientEmails,
           sendDaysMask: sendExtraDaysMask,
           sendTimes: sendTimesPayload,
@@ -462,6 +479,24 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
     setSendBusy(true);
     setSendError(null);
     try {
+      const defaultSubject =
+        sendDialogDefaultSubject.trim() || selectedSendMenu?.label.trim() || '';
+      if (defaultSubject) {
+        const patchSubject = await fetch(`/api/mail/menus/${sendMenuId}`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ defaultSubject }),
+        });
+        if (patchSubject.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        if (!patchSubject.ok) {
+          setSendError(await readApiError(patchSubject));
+          return;
+        }
+      }
       const sendTimesPayload = sendExtraTimes.map((t) => t.trim()).filter(Boolean);
       const res = await fetch(`/api/mail/menus/${sendMenuId}/send-now`, {
         method: 'POST',
@@ -484,6 +519,7 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
       }
       setSendDialogOpen(false);
       setInfoMessage('메일이 발송되었습니다.');
+      await load();
     } catch (e) {
       setSendError(e instanceof Error ? e.message : '발송 요청에 실패했습니다.');
     } finally {
@@ -894,7 +930,7 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
           </DialogHeader>
           <DialogBody className="max-h-[min(85vh,48rem)] space-y-4 overflow-y-auto">
             <p className="text-sm text-app-muted">
-              <strong className="text-app-text">메뉴관리</strong>에서 등록한 메뉴를 고르고, <strong className="text-app-text">메일설정</strong> SMTP 프로필(선택)·받을사람·발송 요일·시각을 지정합니다.{' '}
+              <strong className="text-app-text">메뉴관리</strong>에서 등록한 메뉴를 고르면 <strong className="text-app-text">기본 제목</strong>에 메뉴명이 채워지며, <strong className="text-app-text">메일설정</strong> SMTP 프로필(선택)·받을사람·발송 요일·시각을 지정합니다.{' '}
               <strong className="text-app-text">목록에 저장</strong>하면 해당 값이 메뉴에 반영되며 서울 기준 시각에 자동 발송됩니다.{' '}
               <strong className="text-app-text">지금 발송</strong>은 이 메뉴의 기본 제목·본문으로, 아래 받을사람 주소로 즉시 보냅니다. SMTP 프로필을 비우면 메뉴에 저장된 프로필 또는 등록된 첫 프로필을 사용합니다.
             </p>
@@ -920,6 +956,19 @@ export function MailMenuRegistry({ title = '메일발송관리' }: MailMenuRegis
                 ))}
               </select>
               {sortedMenus.length === 0 ? <p className="text-xs text-app-muted">목록이 비어 있습니다. 메뉴관리에서 메뉴를 먼저 등록하세요.</p> : null}
+            </div>
+            <div className="space-y-1.5">
+              <Label>기본 제목</Label>
+              <Input
+                maxLength={500}
+                value={sendDialogDefaultSubject}
+                disabled={sendBusy || !sendMenuId}
+                placeholder={sendMenuId ? '메뉴명이 자동 입력됩니다. 필요 시 수정하세요.' : '먼저 메뉴를 선택하세요.'}
+                onChange={(e) => setSendDialogDefaultSubject(e.target.value)}
+              />
+              <p className="text-xs text-app-muted">
+                메뉴를 고르면 <strong className="text-app-text">메뉴명</strong>이 제목으로 채워지며, 「목록에 저장」「지금 발송」 시 메뉴의 기본 제목으로 저장됩니다. 실제 발송 시 서울 기준 발신일이 앞에 붙습니다.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>SMTP 프로필 (메일설정)</Label>

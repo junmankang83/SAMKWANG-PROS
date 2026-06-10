@@ -9,6 +9,7 @@ import { generateOpenTrackingToken } from './mail-send-token';
 import { mailSubjectWithSeoulSendDate } from './mail-schedule.util';
 import { createMailMenuSendLogWithColumnFallback } from './mail-send-log-fallback';
 import { MailMenuReportService } from './mail-menu-report.service';
+import { subjectToXlsxFilename } from './mail-report-xlsx.util';
 
 function normalizeRecipientEmails(emails: string[] | undefined): string[] {
   if (!emails?.length) {
@@ -205,6 +206,10 @@ export class MailMenuService {
         openPixelUrl,
         mailHtmlBannerTitle: menu.label.trim() || subject,
         mailHtmlBannerSendAt: sendAt,
+        excelAttachment:
+          report.excelDataBuffer && report.excelDataBuffer.length > 0
+            ? { filename: subjectToXlsxFilename(subject), content: report.excelDataBuffer }
+            : undefined,
         smtp: {
           host: cfg.host,
           port: cfg.port,

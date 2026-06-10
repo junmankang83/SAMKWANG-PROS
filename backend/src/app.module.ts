@@ -10,12 +10,16 @@ import { SparePartsModule } from './spare-parts/spare-parts.module';
 import { ErpModule } from './external/erp/erp.module';
 import { MoldModule } from './mold/mold.module';
 import { MailModule } from './mail/mail.module';
+import { AppNavModule } from './app-nav/app-nav.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
+      // 기본(true)이면 { ...파일, ...process.env }로 합쳐져 OS·쉘의 ERP_*가 .env보다 우선합니다.
+      // 검증 스크립트는 파일만 읽어 통과하는데 Nest만 다른 비밀번호로 접속하는 불일치를 막습니다.
+      validatePredefined: false,
       envFilePath: ['.env', '../.env'],
     }),
     PrismaModule,
@@ -26,6 +30,7 @@ import { MailModule } from './mail/mail.module';
     SparePartsModule,
     MoldModule,
     MailModule,
+    AppNavModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }],
 })

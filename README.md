@@ -67,6 +67,8 @@ pnpm dev:backend                 # http://localhost:4000
 pnpm dev:frontend                # http://localhost:3000
 ```
 
+창고별 재고조회(`GET /api/erp/wh-stock-list`)는 기본 **`Sp_Inventory_NQL`**에 조회일(YYYYMMDD)만 전달합니다. 레거시 `#BIZ_*` 배치를 쓰려면 `.env`에 **`ERP_WH_STOCK_LIST_USE_SP_INVENTORY_NQL=false`** 를 넣으세요. SP 매개 변수명이 `Date`가 아니면 **`ERP_WH_STOCK_LIST_SP_INVENTORY_NQL_DATE_PARAM`** 으로 맞춥니다.
+
 DB만 Docker 로 띄우고 백/프론트는 호스트에서 실행하려면:
 
 ```bash

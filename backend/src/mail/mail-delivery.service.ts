@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
+import type { Attachment } from 'nodemailer/lib/mailer';
 import { buildMailHtmlBody } from './mail-html-body';
 
 export type SendMailInput = {
@@ -19,6 +20,8 @@ export type SendMailInput = {
   mailHtmlBannerTitle?: string;
   /** 배너 `조회일`(서울 기준 표시). 없으면 발송 시각 */
   mailHtmlBannerSendAt?: Date;
+  /** 조회 데이터 xlsx — 파일명은 보통 메일 제목과 동일(`subjectToXlsxFilename`) */
+  excelAttachment?: { filename: string; content: Buffer };
   smtp: {
     host: string;
     port: number;
@@ -53,6 +56,18 @@ export class MailDeliveryService {
       subject: input.subject,
       text: input.text,
     };
+    const excelAtt = input.excelAttachment;
+    const excelNodemailerAttachments: Attachment[] =
+      excelAtt?.content && excelAtt.content.length > 0 && excelAtt.filename?.trim()
+        ? [
+            {
+              filename: excelAtt.filename.trim(),
+              content: excelAtt.content,
+              contentType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            },
+          ]
+        : [];
     const wantsHtml =
       Boolean(pixel) ||
       Boolean(structured) ||
@@ -66,9 +81,12 @@ export class MailDeliveryService {
         mailHtmlBannerSendAt: input.mailHtmlBannerSendAt ?? null,
       });
       mailOptions.html = built.html;
-      if (built.attachments.length > 0) {
-        mailOptions.attachments = built.attachments;
+      const merged: Attachment[] = [...excelNodemailerAttachments, ...built.attachments];
+      if (merged.length > 0) {
+        mailOptions.attachments = merged;
       }
+    } else if (excelNodemailerAttachments.length > 0) {
+      mailOptions.attachments = excelNodemailerAttachments;
     }
     const res = await transport.sendMail(mailOptions);
     return { messageId: res.messageId };

@@ -1,4 +1,13 @@
 /** 메일발송 메뉴가 ERP 외주입고/반품 품목(_TPDOSPDelvIn) 조회와 연결되는지 */
+function looksLikeSalesDailyMenuLabel(labelNorm: string): boolean {
+  return (
+    labelNorm.includes('일자별판매') ||
+    labelNorm.includes('판매실적분석') ||
+    labelNorm.includes('판매실적') ||
+    labelNorm.includes('매출실적')
+  );
+}
+
 export function isOspDelvInItemsMailMenu(menu: { code: string; label: string }): boolean {
   const labelNorm = menu.label.trim().replace(/\s+/g, '');
   const code = menu.code.trim().toLowerCase();
@@ -13,6 +22,10 @@ export function isOspDelvInItemsMailMenu(menu: { code: string; label: string }):
     code === 'menu_code_osp_delv_in' ||
     code === 'menu_code_010'
   ) {
+    /** 메뉴코드만 외주입고(010)로 잘못 붙은 경우: 일자별판매실적 등은 외주 그리드로 연결하지 않음 */
+    if (looksLikeSalesDailyMenuLabel(labelNorm)) {
+      return false;
+    }
     return true;
   }
   return false;

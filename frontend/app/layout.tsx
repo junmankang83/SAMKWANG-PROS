@@ -3,8 +3,8 @@ import type { Metadata } from 'next';
 import { UiKitProvider } from '@/components/UiKitProvider';
 
 export const metadata: Metadata = {
-  title: 'SAMKWANG-PROS',
-  description: '생산관리시스템 (Production Management System)',
+  title: 'ERP INFO MAILER',
+  description: 'ERP 현황 메일 발송 시스템',
 };
 
 export default function RootLayout({

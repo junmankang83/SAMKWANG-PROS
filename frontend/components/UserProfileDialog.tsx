@@ -138,7 +138,7 @@ export function UserProfileDialog({ open, onOpenChange, user }: UserProfileDialo
               className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand/12 text-brand"
               aria-hidden
             >
-              <Icon icon="mdi:account-circle" className="h-7 w-7" />
+              <Icon icon="mdi:account-tie-outline" className="h-8 w-8 shrink-0" aria-hidden />
             </span>
             <p className="text-lg font-semibold text-app-text">{displayName}</p>
           </div>

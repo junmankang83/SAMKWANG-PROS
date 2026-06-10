@@ -10,6 +10,7 @@ import { generateOpenTrackingToken } from './mail-send-token';
 import { normalizeCronToSixFields, mailSubjectWithSeoulSendDate } from './mail-schedule.util';
 import { createMailSendLogWithColumnFallback } from './mail-send-log-fallback';
 import { MailMenuReportService } from './mail-menu-report.service';
+import { subjectToXlsxFilename } from './mail-report-xlsx.util';
 
 function asStringArray(json: Prisma.JsonValue): string[] {
   if (!Array.isArray(json)) {
@@ -273,6 +274,10 @@ export class MailRuleService {
         openPixelUrl,
         mailHtmlBannerTitle: menu.label.trim() || subject,
         mailHtmlBannerSendAt: sendAt,
+        excelAttachment:
+          report.excelDataBuffer && report.excelDataBuffer.length > 0
+            ? { filename: subjectToXlsxFilename(subject), content: report.excelDataBuffer }
+            : undefined,
         smtp: {
           host: cfg.host,
           port: cfg.port,

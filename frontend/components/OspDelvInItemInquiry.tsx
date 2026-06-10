@@ -10,6 +10,7 @@ import {
   Input,
 } from '@samkwang/ui-kit';
 import { EIS_TABLE_SCROLL_WRAP, EIS_TD, EIS_TD_LEFT, EIS_TD_NUM, EIS_TH } from '@/lib/eis-report-table-classes';
+import { defaultMailSendingMenuInquiryDateRange } from '@/lib/erp/inquiry-default-date-range';
 import { useCallback, useMemo, useState } from 'react';
 
 /** 백엔드 `OspDelvInItemRow` — 엑셀「외주입고_반품품목조회」에 맞춘 필드 */
@@ -96,16 +97,8 @@ export type OspDelvInItemInquiryProps = {
   embedded?: boolean;
 };
 
-function formatDefaultDateRange(): { from: string; to: string } {
-  const now = new Date();
-  const first = new Date(now.getFullYear(), now.getMonth(), 1);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return { from: fmt(first), to: fmt(now) };
-}
-
 export function OspDelvInItemInquiry({ embedded = false }: OspDelvInItemInquiryProps) {
-  const defaults = useMemo(() => formatDefaultDateRange(), []);
+  const defaults = useMemo(() => defaultMailSendingMenuInquiryDateRange(), []);
 
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);

@@ -134,6 +134,8 @@ type SqlRow = {
 type PuDelvOutSqlPlan = {
   itemTable: string;
   hDate: string;
+  /** `CHAR(8)` YYYYMMDD — 기간 WHERE·ORDER BY에 사용 */
+  hDateYmdExpr: string;
   hNo: string;
   hSeq: string;
   iSeq: string;
@@ -181,6 +183,19 @@ type PuDelvOutSqlPlan = {
   itemClassLSql: string;
   itemClassMSql: string;
   itemClassSSql: string;
+  /** 품명: `_TDAItem` 우선, 비면 라인 후보 컬럼 */
+  itemNameSelectSql: string;
+  /** 품번: `_TDAItem` 우선, 비면 라인 후보 컬럼 */
+  itemNoSelectSql: string;
+  /** 제조사 `CustName` — `it.MakerSeq` 등 → `_TDACust` mk */
+  makerJoinSql: string;
+  /** 발주 라인 — 원천/진행 등 보조 컬럼 */
+  poiJoinSql: string;
+  srcInquirySql: string;
+  progressInquirySql: string;
+  krwSupplySql: string;
+  krwVatSql: string;
+  krwTotalSql: string;
   /** 수출 제외: `SMExpKind` = `8009004` 가 아닌 행만(헤더·라인 컬럼이 있으면 각각 적용, 없으면 빈 문자열) */
   exportExcludeWhereSql: string;
   smExpKindOnHeader: boolean;
@@ -279,6 +294,43 @@ const MAX_RANGE_DAYS = 400;
 
 function bracketIdent(name: string): string {
   return `[${name.replace(/\]/g, ']]')}]`;
+}
+
+/** 헤더 납품일 → `CHAR(8)` YYYYMMDD (datetime·문자·숫자 혼용) */
+function buildHDelvDateYmdExpr(hDate: string): string {
+  const hc = `h.${bracketIdent(hDate)}`;
+  return `CASE
+    WHEN TRY_CONVERT(datetime, ${hc}, 112) IS NOT NULL THEN CONVERT(CHAR(8), TRY_CONVERT(datetime, ${hc}, 112), 112)
+    WHEN TRY_CONVERT(datetime, ${hc}) IS NOT NULL THEN CONVERT(CHAR(8), TRY_CONVERT(datetime, ${hc}), 112)
+    ELSE RIGHT(N'00000000' + LTRIM(RTRIM(CAST(${hc} AS NVARCHAR(30)))), 8)
+  END`;
+}
+
+/** 라인(i)·헤더(h)에서 금액 후보를 순서대로 COALESCE, 없으면 fallbackSql */
+function buildCoalesceLineHeadAmt(
+  iCols: { COLUMN_NAME: string }[],
+  hCols: { COLUMN_NAME: string }[],
+  iNames: string[],
+  hNames: string[],
+  fallbackSql: string,
+): string {
+  const parts: string[] = [];
+  for (const n of iNames) {
+    const c = pickColumn(iCols, [n]);
+    if (c) {
+      parts.push(`i.${bracketIdent(c)}`);
+    }
+  }
+  for (const n of hNames) {
+    const c = pickColumn(hCols, [n]);
+    if (c) {
+      parts.push(`h.${bracketIdent(c)}`);
+    }
+  }
+  if (parts.length === 0) {
+    return fallbackSql;
+  }
+  return `COALESCE(${parts.join(', ')}, ${fallbackSql})`;
 }
 
 /** `_TPUDelv` / 라인 — 거래명세 `_TSLInvoice`와 동일한 수출 구분 코드 */
@@ -417,6 +469,7 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
         '_TPUDelv에 납품일 컬럼(DelvDate·PUDelvDate·ShipDate 등)을 찾을 수 없습니다.',
       );
     })();
+  const hDateYmdExpr = buildHDelvDateYmdExpr(hDate);
 
   const hNo =
     pickColumn(hCols, ['DelvNo', 'PUDelvNo', 'DelvOutNo', 'ShipNo', 'DocNo']) ??
@@ -487,6 +540,47 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
   const domVatSql = iColSql(iCols, ['DomVAT', 'VAT', 'VATAmt', 'TaxAmt', 'VatAmt'], 'CAST(NULL AS decimal(18, 4))');
   const lineTotalSql = `CAST(ISNULL((${domAmtSql}), 0) + ISNULL((${domVatSql}), 0) AS decimal(18, 4))`;
 
+  const krwSupplySql = buildCoalesceLineHeadAmt(
+    iCols,
+    hCols,
+    [
+      'KrwSupplyAmt',
+      'WonSupplyAmt',
+      'KSupplyAmt',
+      'DomSupplyAmt',
+      'DomSplyAmt',
+      'KrwSplyAmt',
+      'SupplyAmtKRW',
+      'WonSplyAmt',
+      'KrwSupplyAmount',
+    ],
+    ['KrwSupplyAmt', 'WonSupplyAmt', 'DomSupplyAmt', 'KSupplyAmt'],
+    `(${domAmtSql})`,
+  );
+  const krwVatSql = buildCoalesceLineHeadAmt(
+    iCols,
+    hCols,
+    ['KrwVatAmt', 'WonVatAmt', 'DomVatAmt', 'KrwVAT', 'DomVAT', 'VatAmtKRW', 'KrwVATAmt', 'WonVat'],
+    ['KrwVatAmt', 'WonVatAmt', 'DomVatAmt', 'DomVAT'],
+    `(${domVatSql})`,
+  );
+  const krwTotalSql = buildCoalesceLineHeadAmt(
+    iCols,
+    hCols,
+    [
+      'KrwTotalAmt',
+      'WonTotalAmt',
+      'DomTotalAmt',
+      'KrwAmt',
+      'TotAmtKRW',
+      'DomTotal',
+      'KrwLineTotal',
+      'WonLineTotal',
+    ],
+    ['KrwTotalAmt', 'WonTotalAmt', 'DomTotalAmt'],
+    `(${lineTotalSql})`,
+  );
+
   const iWh = pickColumn(iCols, ['WHSeq', 'OutWHSeq', 'WarehouseSeq', 'StkWHSeq', 'DelvWHSeq']);
   const hWh = pickColumn(hCols, ['WHSeq', 'OutWHSeq', 'ShipWHSeq', 'StkWHSeq']);
   let whSeqExpr = 'CAST(NULL AS INT)';
@@ -549,23 +643,117 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
     ? `LTRIM(RTRIM(CAST(c.${bracketIdent(custNoCol)} AS NVARCHAR(60))))`
     : `LTRIM(RTRIM(CAST(c.CustSeq AS NVARCHAR(30))))`;
 
-  const iPurOrderSeq = pickColumn(iCols, ['PurOrderSeq', 'POSeq', 'PurOrdSeq', 'OrderSeq']);
-  const iPurOrderNoLine = pickColumn(iCols, ['PurOrderNo', 'PONo', 'OrderNo']);
+  const iPurOrderSeq = pickColumn(iCols, [
+    'PurOrderSeq',
+    'POSeq',
+    'PurOrdSeq',
+    'OrderSeq',
+    'POrdSeq',
+    'PurchaseOrderSeq',
+    'POKey',
+    'PurOrderKey',
+    'OrdSeq',
+    'PDOrdSeq',
+  ]);
+  const iPurOrderSerl = pickColumn(iCols, [
+    'PurOrderSerl',
+    'POSerl',
+    'PurOrdSerl',
+    'OrderSerl',
+    'PurOrderDtlSerl',
+    'PurOrdDtlSerl',
+    'POLineSerl',
+    'POItemSerl',
+    'OrdSerl',
+    'LineSerl',
+  ]);
+  const iPurOrderNoLine = pickColumn(iCols, [
+    'PurOrderNo',
+    'PONo',
+    'OrderNo',
+    'PurOrdNo',
+    'PurchaseOrderNo',
+    'PDOrdNo',
+    'OrdNo',
+    'PurOrderNum',
+    'POrdNo',
+  ]);
 
   const existsPoUnderscore = await tableExists(pool, '_TPUPurOrder');
   const existsPoPlain = await tableExists(pool, 'TPUPurOrder');
   const hasPoTable = existsPoUnderscore || existsPoPlain;
   const poTable = existsPoUnderscore ? '_TPUPurOrder' : existsPoPlain ? 'TPUPurOrder' : '';
   const poCols = hasPoTable && poTable ? await listColumns(pool, poTable) : [];
-  const poSeq = hasPoTable ? pickColumn(poCols, ['PurOrderSeq', 'POSeq', 'OrderSeq']) : null;
-  const poNo = hasPoTable ? pickColumn(poCols, ['PurOrderNo', 'PONo', 'OrderNo']) : null;
-  const poDateCol = hasPoTable
-    ? pickColumn(poCols, ['PurOrdDate', 'POrdDate', 'OrdDate', 'OrderDate', 'PurDate', 'PODate', 'PurOrderDate'])
+  const poSeq = hasPoTable
+    ? pickColumn(poCols, ['PurOrderSeq', 'POSeq', 'OrderSeq', 'POrdSeq', 'PurchaseOrderSeq', 'POKey', 'PurOrderKey'])
     : null;
+  const poNo = hasPoTable
+    ? pickColumn(poCols, [
+        'PurOrderNo',
+        'PONo',
+        'OrderNo',
+        'PurOrdNo',
+        'PurchaseOrderNo',
+        'PDOrdNo',
+        'OrdNo',
+        'PurOrderNum',
+      ])
+    : null;
+  const poDateCol = hasPoTable
+    ? pickColumn(poCols, [
+        'PurOrdDate',
+        'POrdDate',
+        'OrdDate',
+        'OrderDate',
+        'PurDate',
+        'PODate',
+        'PurOrderDate',
+        'OrderRegDate',
+        'POrdRegDate',
+        'RegDate',
+      ])
+    : null;
+
+  /** 발주일: `po` 조인 성공 시 헤더 우선, 없으면 납품라인·납품헤더 후보 */
+  const linePoDateExpr = iColSql(
+    iCols,
+    [
+      'PurOrderDate',
+      'PurOrdDate',
+      'POrdDate',
+      'OrdDate',
+      'OrderDate',
+      'PODate',
+      'PurDate',
+      'PORegDate',
+      'PurOrderRegDate',
+    ],
+    'CAST(NULL AS NVARCHAR(30))',
+  );
+  const hdrPoDateExpr = hColSql(
+    hCols,
+    [
+      'PurOrderDate',
+      'PurOrdDate',
+      'POrdDate',
+      'OrdDate',
+      'OrderDate',
+      'PODate',
+      'PurDate',
+      'PORegDate',
+    ],
+    'CAST(NULL AS NVARCHAR(30))',
+  );
+  const purOrderDateSelectFromPo = (poDatePartSql: string) =>
+    `COALESCE(
+        ${poDatePartSql},
+        NULLIF(LTRIM(RTRIM(CAST(${linePoDateExpr} AS NVARCHAR(30)))), N''),
+        NULLIF(LTRIM(RTRIM(CAST(${hdrPoDateExpr} AS NVARCHAR(30)))), N'')
+      ) AS PurOrderDateRaw`;
 
   let poJoin = '';
   let poPurOrderNoSelect = `CAST(NULL AS NVARCHAR(60)) AS PurOrderNo`;
-  let poPurOrderDateSelect = `CAST(NULL AS NVARCHAR(30)) AS PurOrderDateRaw`;
+  let poPurOrderDateSelect = purOrderDateSelectFromPo(`CAST(NULL AS NVARCHAR(30))`);
   if (hasPoTable && poTable && poSeq && poNo && iPurOrderSeq) {
     poJoin = `LEFT JOIN dbo.${bracketIdent(poTable)} po
         ON h.CompanySeq = po.CompanySeq
@@ -573,14 +761,34 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
         AND po.${bracketIdent(poSeq)} = i.${bracketIdent(iPurOrderSeq)}`;
     poPurOrderNoSelect = `COALESCE(
           NULLIF(LTRIM(RTRIM(po.${bracketIdent(poNo)})), N''),
+          ${
+            iPurOrderNoLine
+              ? `NULLIF(LTRIM(RTRIM(CAST(i.${bracketIdent(iPurOrderNoLine)} AS NVARCHAR(100)))), N''),`
+              : ''
+          }
           CASE
             WHEN NULLIF(i.${bracketIdent(iPurOrderSeq)}, 0) IS NULL THEN NULL
             ELSE LTRIM(RTRIM(CAST(i.${bracketIdent(iPurOrderSeq)} AS NVARCHAR(30))))
           END
         ) AS PurOrderNo`;
-    if (poDateCol) {
-      poPurOrderDateSelect = `LTRIM(RTRIM(CAST(po.${bracketIdent(poDateCol)} AS NVARCHAR(30)))) AS PurOrderDateRaw`;
-    }
+    const poDatePart = poDateCol
+      ? `NULLIF(LTRIM(RTRIM(CAST(po.${bracketIdent(poDateCol)} AS NVARCHAR(30)))), N'')`
+      : `CAST(NULL AS NVARCHAR(30))`;
+    poPurOrderDateSelect = purOrderDateSelectFromPo(poDatePart);
+  } else if (hasPoTable && poTable && poSeq && poNo && iPurOrderNoLine) {
+    /** 라인에 발주번호만 있고 Seq 컬럼명이 다를 때 — 번호 문자열로 발주 헤더 조인 */
+    poJoin = `LEFT JOIN dbo.${bracketIdent(poTable)} po
+        ON h.CompanySeq = po.CompanySeq
+        AND NULLIF(LTRIM(RTRIM(CAST(i.${bracketIdent(iPurOrderNoLine)} AS NVARCHAR(100)))), N'') IS NOT NULL
+        AND LTRIM(RTRIM(CAST(po.${bracketIdent(poNo)} AS NVARCHAR(100)))) = LTRIM(RTRIM(CAST(i.${bracketIdent(iPurOrderNoLine)} AS NVARCHAR(100))))`;
+    poPurOrderNoSelect = `COALESCE(
+          NULLIF(LTRIM(RTRIM(CAST(po.${bracketIdent(poNo)} AS NVARCHAR(100)))), N''),
+          NULLIF(LTRIM(RTRIM(CAST(i.${bracketIdent(iPurOrderNoLine)} AS NVARCHAR(100)))), N'')
+        ) AS PurOrderNo`;
+    const poDatePart = poDateCol
+      ? `NULLIF(LTRIM(RTRIM(CAST(po.${bracketIdent(poDateCol)} AS NVARCHAR(30)))), N'')`
+      : `CAST(NULL AS NVARCHAR(30))`;
+    poPurOrderDateSelect = purOrderDateSelectFromPo(poDatePart);
   } else if (iPurOrderNoLine) {
     poPurOrderNoSelect = `COALESCE(
           NULLIF(LTRIM(RTRIM(i.${bracketIdent(iPurOrderNoLine)})), N''),
@@ -591,11 +799,92 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
               : 'CAST(NULL AS NVARCHAR(60))'
           }
         ) AS PurOrderNo`;
+    poPurOrderDateSelect = purOrderDateSelectFromPo(`CAST(NULL AS NVARCHAR(30))`);
   } else if (iPurOrderSeq) {
     poPurOrderNoSelect = `CASE
             WHEN NULLIF(i.${bracketIdent(iPurOrderSeq)}, 0) IS NULL THEN NULL
             ELSE LTRIM(RTRIM(CAST(i.${bracketIdent(iPurOrderSeq)} AS NVARCHAR(30))))
           END AS PurOrderNo`;
+    poPurOrderDateSelect = purOrderDateSelectFromPo(`CAST(NULL AS NVARCHAR(30))`);
+  }
+
+  let poiJoinSql = '';
+  let poiSrcCol: string | null = null;
+  let poiProgCol: string | null = null;
+  const poiTableName = (await tableExists(pool, '_TPUPurOrderItem'))
+    ? '_TPUPurOrderItem'
+    : (await tableExists(pool, 'TPUPurOrderItem'))
+      ? 'TPUPurOrderItem'
+      : '';
+  if (poiTableName && hasPoTable && poTable && poSeq && iPurOrderSeq && iPurOrderSerl) {
+    const poci = await listColumns(pool, poiTableName);
+    const poiPoSeq = pickColumn(poci, ['PurOrderSeq', 'POSeq', 'OrderSeq', 'POrdSeq', 'PurchaseOrderSeq']);
+    const poiPoSerl = pickColumn(poci, [
+      'PurOrderSerl',
+      'POSerl',
+      'PurOrdSerl',
+      'OrderSerl',
+      'PurOrderDtlSerl',
+      'POLineSerl',
+    ]);
+    if (poiPoSeq && poiPoSerl) {
+      poiJoinSql = `LEFT JOIN dbo.${bracketIdent(poiTableName)} poi
+        ON h.CompanySeq = poi.CompanySeq
+        AND NULLIF(i.${bracketIdent(iPurOrderSeq)}, 0) IS NOT NULL
+        AND NULLIF(i.${bracketIdent(iPurOrderSerl)}, 0) IS NOT NULL
+        AND poi.${bracketIdent(poiPoSeq)} = i.${bracketIdent(iPurOrderSeq)}
+        AND poi.${bracketIdent(poiPoSerl)} = i.${bracketIdent(iPurOrderSerl)}`;
+      poiSrcCol = pickColumn(poci, [
+        'SrcInquiry',
+        'SourceInquiry',
+        'OriInquiry',
+        'RootInquiry',
+        'RefInquiry',
+        'CustOrdInquiry',
+      ]);
+      poiProgCol = pickColumn(poci, [
+        'ProgressInquiry',
+        'PrgInquiry',
+        'ProgInquiry',
+        'ProgStatusInq',
+        'ProgressStatus',
+        'RecvProgressInq',
+      ]);
+    }
+  }
+
+  const srcLineSql = iColSql(
+    iCols,
+    [
+      'SrcInquiry',
+      'SourceInquiry',
+      'OriInquiry',
+      'RootInquiry',
+      'RefInquiry',
+      'CustInquiry',
+      'InquirySrc',
+    ],
+    'CAST(NULL AS NVARCHAR(500))',
+  );
+  const progLineSql = iColSql(
+    iCols,
+    [
+      'ProgressInquiry',
+      'PrgInquiry',
+      'ProgInquiry',
+      'ProgressInq',
+      'ProgStatus',
+      'RecvProgressInq',
+    ],
+    'CAST(NULL AS NVARCHAR(500))',
+  );
+  let srcInquirySql = srcLineSql;
+  let progressInquirySql = progLineSql;
+  if (poiJoinSql && poiSrcCol) {
+    srcInquirySql = `COALESCE(NULLIF(LTRIM(RTRIM(CAST(poi.${bracketIdent(poiSrcCol)} AS NVARCHAR(500)))), N''), (${srcLineSql}))`;
+  }
+  if (poiJoinSql && poiProgCol) {
+    progressInquirySql = `COALESCE(NULLIF(LTRIM(RTRIM(CAST(poi.${bracketIdent(poiProgCol)} AS NVARCHAR(500)))), N''), (${progLineSql}))`;
   }
 
   const inspKindPick = pickFirstExpr(
@@ -625,17 +914,46 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
 
   const inQtySql = iColSql(
     iCols,
-    ['InQty', 'RecvQty', 'DelvInQty', 'StockInQty', 'WHInQty', 'RcvQty', 'GRQty'],
+    [
+      'InQty',
+      'RecvQty',
+      'DelvInQty',
+      'StockInQty',
+      'WHInQty',
+      'RcvQty',
+      'GRQty',
+      'RecvInQty',
+      'PUInQty',
+      'PurInQty',
+      'RecvGRQty',
+    ],
     'CAST(NULL AS decimal(18, 6))',
   );
   const inAmtSql = iColSql(
     iCols,
-    ['InDomAmt', 'RecvDomAmt', 'InAmt', 'GRDomAmt', 'RecvAmt'],
+    [
+      'InDomAmt',
+      'RecvDomAmt',
+      'InAmt',
+      'GRDomAmt',
+      'RecvAmt',
+      'InFcurrAmt',
+      'RecvFcurrAmt',
+      'InSupplyAmt',
+    ],
     'CAST(NULL AS decimal(18, 4))',
   );
   const inKrwAmtSql = iColSql(
     iCols,
-    ['InKrwAmt', 'InWonAmt', 'RecvKrwAmt', 'InDomTotAmt'],
+    [
+      'InKrwAmt',
+      'InWonAmt',
+      'RecvKrwAmt',
+      'InDomTotAmt',
+      'InKrwTotAmt',
+      'RecvKrwTotAmt',
+      'InWonTotAmt',
+    ],
     `CAST(NULL AS decimal(18, 4))`,
   );
 
@@ -655,10 +973,28 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
   const exportExcludeWhereSql =
     smExpKindNotExportWhere('h', hSmExpKindCol) + smExpKindNotExportWhere('i', iSmExpKindCol);
 
-  const makerNameCol = pickColumn(itCols, ['MakerName', 'MfgName', 'ManufName', 'MakeCustName']);
-  const makerNameSql = makerNameCol
+  const makerNameCol = pickColumn(itCols, [
+    'MakerName',
+    'MfgName',
+    'ManufName',
+    'MakeCustName',
+    'ManufacturerName',
+    'MakerCustName',
+    'MFGName',
+    'SupName',
+  ]);
+  let makerNameSql = makerNameCol
     ? `LTRIM(RTRIM(CAST(it.${bracketIdent(makerNameCol)} AS NVARCHAR(200))))`
     : `CAST(NULL AS NVARCHAR(200))`;
+  const makerSeqOnItem = pickColumn(itCols, ['MakerSeq', 'MakerCustSeq', 'MfgCustSeq', 'MFGCustSeq', 'MakeCustSeq']);
+  let makerJoinSql = '';
+  if (makerSeqOnItem) {
+    makerJoinSql = `LEFT JOIN dbo.[_TDACust] mk
+      ON h.CompanySeq = mk.CompanySeq
+      AND NULLIF(it.${bracketIdent(makerSeqOnItem)}, 0) IS NOT NULL
+      AND mk.CustSeq = it.${bracketIdent(makerSeqOnItem)}`;
+    makerNameSql = `COALESCE(NULLIF(LTRIM(RTRIM(CAST(mk.CustName AS NVARCHAR(200)))), N''), (${makerNameSql}))`;
+  }
 
   const itemAssetPick = pickFirstExpr(
     itCols,
@@ -682,12 +1018,49 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
     ? `LTRIM(RTRIM(CAST(i.${bracketIdent(specNoteCol)} AS NVARCHAR(500))))`
     : `CAST(NULL AS NVARCHAR(500))`;
 
-  const srcMgmtSql = iColSql(iCols, ['SrcMgmtNo', 'SourceMgmtNo', 'OriMgmtNo', 'RootMgmtNo'], 'CAST(NULL AS NVARCHAR(80))');
-  const srcNoSql = iColSql(iCols, ['SrcNo', 'SourceNo', 'RefDocNo', 'OriDocNo', 'RootDocNo'], 'CAST(NULL AS NVARCHAR(80))');
-  const custLotSql = iColSql(iCols, ['CustLotNo', 'CustomerLotNo', 'CLotNo', 'UserLotNo'], 'CAST(NULL AS NVARCHAR(80))');
+  const srcMgmtSql = iColSql(
+    iCols,
+    [
+      'SrcMgmtNo',
+      'SourceMgmtNo',
+      'OriMgmtNo',
+      'RootMgmtNo',
+      'OrigMgmtNo',
+      'RefMgmtNo',
+      'CustMgmtNo',
+    ],
+    'CAST(NULL AS NVARCHAR(80))',
+  );
+  const srcNoSql = iColSql(
+    iCols,
+    ['SrcNo', 'SourceNo', 'RefDocNo', 'OriDocNo', 'RootDocNo', 'OrigDocNo', 'CustDocNo', 'RefNo'],
+    'CAST(NULL AS NVARCHAR(80))',
+  );
+  const custLotSql = iColSql(
+    iCols,
+    ['CustLotNo', 'CustomerLotNo', 'CLotNo', 'UserLotNo', 'CustLOT', 'ExtLotNo'],
+    'CAST(NULL AS NVARCHAR(80))',
+  );
 
-  const iMod = pickColumn(iCols, ['ModDateTime', 'UpdDateTime', 'LstUpdDateTime', 'LastUpdDateTime']);
-  const hMod = pickColumn(hCols, ['ModDateTime', 'UpdDateTime', 'LstUpdDateTime']);
+  const iMod = pickColumn(iCols, [
+    'ModDateTime',
+    'UpdDateTime',
+    'LstUpdDateTime',
+    'LastUpdDateTime',
+    'LastDateTime',
+    'EditDateTime',
+    'LastWorkDateTime',
+  ]);
+  const hMod = pickColumn(hCols, [
+    'ModDateTime',
+    'UpdDateTime',
+    'LstUpdDateTime',
+    'LastUpdDateTime',
+    'LastDateTime',
+    'EditDateTime',
+    'InsDateTime',
+    'RegDateTime',
+  ]);
   const lastWorkSql =
     iMod && hMod
       ? `LTRIM(RTRIM(CONVERT(NVARCHAR(50), COALESCE(i.${bracketIdent(iMod)}, h.${bracketIdent(hMod)}), 120)))`
@@ -699,19 +1072,63 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
 
   const itemClassLSql = itColSql(
     itCols,
-    ['ItemLClassName', 'LargeClassName', 'LClassName', 'ItemLargeClassName'],
+    [
+      'ItemLClassName',
+      'LargeClassName',
+      'LClassName',
+      'ItemLargeClassName',
+      'ItemKindLName',
+      'KindLName',
+      'MajorKindName',
+      'ItemCatLName',
+      'MajorClassName',
+      'ClassLName',
+    ],
     'CAST(NULL AS NVARCHAR(120))',
   );
   const itemClassMSql = itColSql(
     itCols,
-    ['ItemMClassName', 'MidClassName', 'MClassName', 'ItemMidClassName'],
+    [
+      'ItemMClassName',
+      'MidClassName',
+      'MClassName',
+      'ItemMidClassName',
+      'ItemKindMName',
+      'KindMName',
+      'MidKindName',
+      'ItemCatMName',
+      'ClassMName',
+    ],
     'CAST(NULL AS NVARCHAR(120))',
   );
   const itemClassSSql = itColSql(
     itCols,
-    ['ItemSClassName', 'SmallClassName', 'SClassName', 'ItemSmallClassName'],
+    [
+      'ItemSClassName',
+      'SmallClassName',
+      'SClassName',
+      'ItemSmallClassName',
+      'ItemKindSName',
+      'KindSName',
+      'MinorKindName',
+      'ItemCatSName',
+      'ClassSName',
+    ],
     'CAST(NULL AS NVARCHAR(120))',
   );
+
+  const lineItemNameSql = iColSql(
+    iCols,
+    ['ItemName', 'MatName', 'MaterialName', 'LineItemName', 'PurItemName', 'UMItemName', 'OutItemName'],
+    'CAST(NULL AS NVARCHAR(500))',
+  );
+  const itemNameSelectSql = `COALESCE(NULLIF(LTRIM(RTRIM(CAST(it.ItemName AS NVARCHAR(500)))), N''), (${lineItemNameSql}))`;
+  const lineItemNoSql = iColSql(
+    iCols,
+    ['ItemNo', 'MatNo', 'MaterialNo', 'LineItemNo', 'PurItemNo', 'CustItemNo', 'OutItemNo'],
+    'CAST(NULL AS NVARCHAR(100))',
+  );
+  const itemNoSelectSql = `COALESCE(NULLIF(LTRIM(RTRIM(CAST(it.ItemNo AS NVARCHAR(100)))), N''), (${lineItemNoSql}))`;
 
   logger.log(
     `PU Delv schema: item=${itemTable}, date=${hDate}, no=${hNo}, seq=${hSeq}/${iSeq}, serl=${iSerl}, poJoin=${Boolean(poJoin)}, SMExpKind h=${Boolean(hSmExpKindCol)} i=${Boolean(iSmExpKindCol)}`,
@@ -720,6 +1137,7 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
   return {
     itemTable,
     hDate,
+    hDateYmdExpr,
     hNo,
     hSeq,
     iSeq,
@@ -753,6 +1171,7 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
     inKrwAmtSql,
     locForKindExpr,
     inspKindExpr,
+    makerJoinSql,
     makerNameSql,
     itemAssetSql,
     validDateSql,
@@ -767,6 +1186,14 @@ async function resolveSqlPlan(pool: mssql.ConnectionPool, logger: Logger): Promi
     itemClassLSql,
     itemClassMSql,
     itemClassSSql,
+    itemNameSelectSql,
+    itemNoSelectSql,
+    poiJoinSql,
+    srcInquirySql,
+    progressInquirySql,
+    krwSupplySql,
+    krwVatSql,
+    krwTotalSql,
     exportExcludeWhereSql,
     smExpKindOnHeader: hSmExpKindCol != null,
     smExpKindOnLine: iSmExpKindCol != null,
@@ -780,7 +1207,7 @@ function buildSelectSql(plan: PuDelvOutSqlPlan, whereTail: string): string {
         ${plan.delvKindExpr} AS DelvKindRaw,
         ${plan.recvProgExpr} AS RecvProgRaw,
         h.BizUnit AS BizUnit,
-        LTRIM(RTRIM(h.${bracketIdent(plan.hDate)})) AS DelvDateRaw,
+        ${plan.hDateYmdExpr} AS DelvDateRaw,
         CASE
           WHEN LEN(LTRIM(RTRIM(h.${bracketIdent(plan.hNo)}))) = 10 AND LTRIM(RTRIM(h.${bracketIdent(plan.hNo)})) NOT LIKE N'%-%'
             THEN LEFT(LTRIM(RTRIM(h.${bracketIdent(plan.hNo)})), 6) + N'-' + SUBSTRING(LTRIM(RTRIM(h.${bracketIdent(plan.hNo)})), 7, 20)
@@ -793,8 +1220,8 @@ function buildSelectSql(plan: PuDelvOutSqlPlan, whereTail: string): string {
         ${plan.deptSelectSql},
         ${plan.empSelectSql},
         ${plan.inspKindExpr} AS InspKindRaw,
-        it.ItemName AS ItemName,
-        it.ItemNo AS ItemNo,
+        ${plan.itemNameSelectSql} AS ItemName,
+        ${plan.itemNoSelectSql} AS ItemNo,
         it.Spec AS Spec,
         u.UnitName AS UnitName,
         ${plan.lineUnitPriceSql} AS LineUnitPrice,
@@ -807,9 +1234,9 @@ function buildSelectSql(plan: PuDelvOutSqlPlan, whereTail: string): string {
         curr.CurrName AS CurrName,
         curr.CurrNo AS CurrNo,
         ${plan.exRateSql} AS ExRate,
-        ${plan.domAmtSql} AS KrwSupplyAmt,
-        ${plan.domVatSql} AS KrwVatAmt,
-        ${plan.lineTotalSql} AS KrwTotalAmt,
+        ${plan.krwSupplySql} AS KrwSupplyAmt,
+        ${plan.krwVatSql} AS KrwVatAmt,
+        ${plan.krwTotalSql} AS KrwTotalAmt,
         ${plan.inQtySql} AS InQty,
         ${plan.inAmtSql} AS InDomAmt,
         ${plan.inKrwAmtSql} AS InKrwAmt,
@@ -823,8 +1250,8 @@ function buildSelectSql(plan: PuDelvOutSqlPlan, whereTail: string): string {
         ${plan.ngRetSql} AS NGReturnQty,
         ${plan.specialNoteSql} AS SpecialNote,
         ${plan.remarkSelect},
-        CAST(NULL AS NVARCHAR(20)) AS SrcInquiry,
-        CAST(NULL AS NVARCHAR(20)) AS ProgressInquiry,
+        ${plan.srcInquirySql} AS SrcInquiry,
+        ${plan.progressInquirySql} AS ProgressInquiry,
         ${plan.srcMgmtSql} AS SrcMgmtNo,
         ${plan.srcNoSql} AS SrcNo,
         ${plan.custLotSql} AS CustLotNo,
@@ -845,11 +1272,13 @@ function buildSelectSql(plan: PuDelvOutSqlPlan, whereTail: string): string {
       ${plan.deptJoinSql}
       ${plan.currJoinSql}
       ${plan.poJoin}
-      WHERE LTRIM(RTRIM(h.${bracketIdent(plan.hDate)})) >= @fromYmd
-        AND LTRIM(RTRIM(h.${bracketIdent(plan.hDate)})) <= @toYmd
+      ${plan.poiJoinSql}
+      ${plan.makerJoinSql}
+      WHERE ${plan.hDateYmdExpr} >= @fromYmd
+        AND ${plan.hDateYmdExpr} <= @toYmd
         ${plan.exportExcludeWhereSql}
         ${whereTail}
-      ORDER BY LTRIM(RTRIM(h.${bracketIdent(plan.hDate)})) ASC, h.CompanySeq ASC, h.${bracketIdent(plan.hSeq)} ASC, i.${bracketIdent(plan.iSerl)} ASC
+      ORDER BY ${plan.hDateYmdExpr} ASC, h.CompanySeq ASC, h.${bracketIdent(plan.hSeq)} ASC, i.${bracketIdent(plan.iSerl)} ASC
     `;
 }
 

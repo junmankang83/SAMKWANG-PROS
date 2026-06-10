@@ -12,6 +12,10 @@ import { isOspDelvInItemsMailMenu } from '@/lib/mail/osp-delv-in-items-menu';
 import { isPuDelvItemsMailMenu } from '@/lib/mail/pu-delv-items-menu';
 import { isOspDelvItemsMailMenu } from '@/lib/mail/osp-delv-items-menu';
 import { isLgInoutMoveItemsMailMenu } from '@/lib/mail/lg-inout-move-items-menu';
+import { isPdsfcWorkReportMailMenu } from '@/lib/mail/pdsfc-work-report-menu';
+import { isWhStockListMailMenu } from '@/lib/mail/wh-stock-list-menu';
+import { isWhStockSumMailMenu } from '@/lib/mail/wh-stock-sum-menu';
+import { isTslSalesDailyAnalysisMailMenu } from '@/lib/mail/tsl-sales-daily-analysis-menu';
 import { TslInvoiceItemInquiry } from '@/components/TslInvoiceItemInquiry';
 import { TslExportInvoiceItemInquiry } from '@/components/TslExportInvoiceItemInquiry';
 import { TslExportReturnInvoiceItemInquiry } from '@/components/TslExportReturnInvoiceItemInquiry';
@@ -21,6 +25,10 @@ import { OspDelvInItemInquiry } from '@/components/OspDelvInItemInquiry';
 import { PuDelvItemInquiry } from '@/components/PuDelvItemInquiry';
 import { OspDelvItemInquiry } from '@/components/OspDelvItemInquiry';
 import { LgInoutMoveItemInquiry } from '@/components/LgInoutMoveItemInquiry';
+import { PdsfcWorkReportInquiry } from '@/components/PdsfcWorkReportInquiry';
+import { WhStockListInquiry } from '@/components/WhStockListInquiry';
+import { WhStockSumInquiry } from '@/components/WhStockSumInquiry';
+import { TslSalesDailyAnalysisInquiry } from '@/components/TslSalesDailyAnalysisInquiry';
 
 type MenuDetail = {
   id: string;
@@ -124,18 +132,26 @@ export function MailSendingMenuView() {
         <h1 className="text-xl font-semibold text-app-text">{row.label}</h1>
       </div>
 
-      {isLgInoutMoveItemsMailMenu(row) ? (
+      {isWhStockListMailMenu(row) ? (
+        <WhStockListInquiry embedded />
+      ) : isWhStockSumMailMenu(row) ? (
+        <WhStockSumInquiry embedded />
+      ) : isPdsfcWorkReportMailMenu(row) ? (
+        <PdsfcWorkReportInquiry embedded />
+      ) : isLgInoutMoveItemsMailMenu(row) ? (
         <LgInoutMoveItemInquiry embedded />
+      ) : isTslSalesDailyAnalysisMailMenu(row) ? (
+        <TslSalesDailyAnalysisInquiry embedded />
       ) : isOspDelvInItemsMailMenu(row) ? (
         <OspDelvInItemInquiry embedded />
       ) : isTslExportReturnInvoiceItemsMailMenu(row) ? (
         <TslExportReturnInvoiceItemInquiry embedded />
+      ) : isTslExportInvoiceItemsMailMenu(row) ? (
+        <TslExportInvoiceItemInquiry embedded />
       ) : isTslDvReqItemsMailMenu(row) ? (
         <TslDvReqItemInquiry embedded />
       ) : isOspDelvItemsMailMenu(row) ? (
         <OspDelvItemInquiry embedded />
-      ) : isTslExportInvoiceItemsMailMenu(row) ? (
-        <TslExportInvoiceItemInquiry embedded />
       ) : isTslInvoiceItemsMailMenu(row) ? (
         <TslInvoiceItemInquiry embedded />
       ) : isPuDelvItemsMailMenu(row) ? (

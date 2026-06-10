@@ -176,6 +176,10 @@ type OspDelvInSqlPlan = {
   itemCatSExprSql: string;
   /** 라인 OSPWOSeq 등 → 작업지시 마스터에서 번호 문자열 조회 */
   ospWorkOrdJoinSql: string;
+  /** 헤더 `SMDelvType` → `_TDASMinor`(MajorSeq 고정) 명칭 (OUTER APPLY, 행 중복 방지) */
+  delvTypeSmApplySql: string;
+  /** `_TPDSFCWorkOrder` 등 — `WorkOrderSeq`로 `WorkOrderNo` */
+  sfcWorkOrdJoinSql: string;
 };
 
 function trimOrNull(v: unknown): string | null {
@@ -535,6 +539,7 @@ async function resolveOspDelvInSqlPlan(
   pool: mssql.ConnectionPool,
   logger: Logger,
   kindMinorFilter?: { major: number; serl: number } | null,
+  smDelvTypeUminorMajor = 6209,
 ): Promise<OspDelvInSqlPlan> {
   let headerTable = '_TPDOSPDelvIn';
   if (!(await tableExists(pool, headerTable))) {
@@ -805,8 +810,75 @@ async function resolveOspDelvInSqlPlan(
   const kindCaseH = buildSmOspInKindCaseExpr('h', hKindColPick);
   const kindCaseI = buildSmOspInKindCaseExpr('i', iKindColPick);
 
+  let delvTypeSmApplySql = '';
+  let smDelvTypeExprForCoalesce = 'CAST(NULL AS NVARCHAR(200))';
+  const smDelvTypeCol = pickColumn(hCols, ['SMDelvType', 'SmDelvType']);
+  /** ERP 소분류 마스터(`_tdasminor` 계열): `SMDelvType` ↔ `MinorSeq`, `MajorSeq = 6209` */
+  const smMinorTableCandidates = ['_TDASMinor', 'TDASMinor', '_tdasminor'];
+  let smMinorTable = '';
+  for (const tn of smMinorTableCandidates) {
+    if (await tableExists(pool, tn)) {
+      smMinorTable = tn;
+      break;
+    }
+  }
+  if (smDelvTypeCol && smMinorTable) {
+    const smCols = await listColumns(pool, smMinorTable);
+    const mvMinorSm = pickColumn(smCols, ['MinorSeq', 'MINORSEQ', 'UMMinorSeq']);
+    const mvMajorSm = pickColumn(smCols, ['MajorSeq', 'MAJORSEQ']);
+    const mvMinorNameSm = pickColumn(smCols, [
+      'MinorName',
+      'MINORNAME',
+      'UMinorName',
+      'MinorDesc',
+      'SMinorName',
+      'SMINORNAME',
+      'MinorNm',
+    ]);
+    const mvVtSm = pickColumn(smCols, ['ValueText', 'VALUETEXT', 'MinorValueText']);
+    const mvCompSm = pickColumn(smCols, ['CompanySeq', 'COMPANYSEQ']);
+    if (mvMinorSm && mvMajorSm) {
+      let namePartSm = '';
+      if (mvMinorNameSm && mvVtSm) {
+        namePartSm = `COALESCE(
+            NULLIF(LTRIM(RTRIM(CAST(sm6209.${bracketIdent(mvMinorNameSm)} AS NVARCHAR(200)))), N''),
+            NULLIF(LTRIM(RTRIM(CAST(sm6209.${bracketIdent(mvVtSm)} AS NVARCHAR(200)))), N'')
+          )`;
+      } else if (mvMinorNameSm) {
+        namePartSm = `NULLIF(LTRIM(RTRIM(CAST(sm6209.${bracketIdent(mvMinorNameSm)} AS NVARCHAR(200)))), N'')`;
+      } else if (mvVtSm) {
+        namePartSm = `NULLIF(LTRIM(RTRIM(CAST(sm6209.${bracketIdent(mvVtSm)} AS NVARCHAR(200)))), N'')`;
+      } else {
+        namePartSm = `LTRIM(RTRIM(CAST(sm6209.${bracketIdent(mvMinorSm)} AS NVARCHAR(200))))`;
+      }
+      const compClauseSm = mvCompSm
+        ? `(sm6209.${bracketIdent(mvCompSm)} = h.CompanySeq OR sm6209.${bracketIdent(mvCompSm)} IS NULL)`
+        : '1 = 1';
+      const orderCompSm = mvCompSm
+        ? `CASE WHEN sm6209.${bracketIdent(mvCompSm)} = h.CompanySeq THEN 0 ELSE 1 END`
+        : '0';
+      const majorSqlSm = `AND sm6209.${bracketIdent(mvMajorSm)} = ${Number(smDelvTypeUminorMajor)}`;
+      const minorMatchSm = `TRY_CAST(sm6209.${bracketIdent(mvMinorSm)} AS NVARCHAR(50)) = TRY_CAST(h.${bracketIdent(smDelvTypeCol)} AS NVARCHAR(50))`;
+      delvTypeSmApplySql = `OUTER APPLY (
+    SELECT TOP (1) ${namePartSm} AS SmDelvTypeText
+    FROM dbo.${bracketIdent(smMinorTable)} sm6209
+    WHERE ${compClauseSm}
+      ${majorSqlSm}
+      AND ${minorMatchSm}
+    ORDER BY ${orderCompSm}
+  ) delvTypeUm`;
+      smDelvTypeExprForCoalesce = `NULLIF(LTRIM(RTRIM(CAST(delvTypeUm.SmDelvTypeText AS NVARCHAR(200)))), N'')`;
+      logger.log(`OSP DelvIn: 납품반품구분 ${smMinorTable} MajorSeq=${smDelvTypeUminorMajor} ← h.${smDelvTypeCol}`);
+    }
+  }
+
   let inKindApplySql = '';
-  let receiptKindSelectSql = `COALESCE(${kindCaseH}, ${kindCaseI}, ${rawKindBase}) AS ReceiptKind`;
+  let receiptKindSelectSql = `COALESCE(
+        ${smDelvTypeExprForCoalesce},
+        ${kindCaseH},
+        ${kindCaseI},
+        ${rawKindBase}
+      ) AS ReceiptKind`;
 
   if (await tableExists(pool, '_TDAUMinorValue')) {
     const umCols = await listColumns(pool, '_TDAUMinorValue');
@@ -881,6 +953,7 @@ async function resolveOspDelvInSqlPlan(
     ORDER BY ${orderComp}, ${orderMinorH}
   ) ink`;
       receiptKindSelectSql = `COALESCE(
+        ${smDelvTypeExprForCoalesce},
         NULLIF(ink.KindText, N''),
         ${kindCaseH},
         ${kindCaseI},
@@ -956,10 +1029,45 @@ async function resolveOspDelvInSqlPlan(
     }
   }
 
+  let sfcWorkOrdJoinSql = '';
+  let sfcWoNoExprFragment = '';
+  const hWorkOrderSeq = pickColumn(hCols, ['WorkOrderSeq', 'WORKORDERSEQ']);
+  const iWorkOrderSeq = pickColumn(iCols, ['WorkOrderSeq', 'WORKORDERSEQ']);
+  const sfcTable =
+    (await tableExists(pool, '_TPDSFCWorkOrder'))
+      ? '_TPDSFCWorkOrder'
+      : (await tableExists(pool, 'TPDSFCWorkOrder'))
+        ? 'TPDSFCWorkOrder'
+        : '';
+  if (sfcTable && (hWorkOrderSeq || iWorkOrderSeq)) {
+    const sfcCols = await listColumns(pool, sfcTable);
+    const sfcSeq = pickColumn(sfcCols, ['WorkOrderSeq', 'WORKORDERSEQ']);
+    const sfcNo = pickColumn(sfcCols, ['WorkOrderNo', 'WORKORDERNO']);
+    if (sfcSeq && sfcNo) {
+      const keyExprSfc =
+        hWorkOrderSeq && iWorkOrderSeq
+          ? `COALESCE(NULLIF(i.${bracketIdent(iWorkOrderSeq)}, 0), NULLIF(h.${bracketIdent(hWorkOrderSeq)}, 0))`
+          : hWorkOrderSeq
+            ? `NULLIF(h.${bracketIdent(hWorkOrderSeq)}, 0)`
+            : `NULLIF(i.${bracketIdent(iWorkOrderSeq!)}, 0)`;
+      sfcWorkOrdJoinSql = `LEFT JOIN dbo.${bracketIdent(sfcTable)} sfcWo
+        ON h.CompanySeq = sfcWo.CompanySeq AND sfcWo.${bracketIdent(sfcSeq)} = ${keyExprSfc}`;
+      sfcWoNoExprFragment = `NULLIF(LTRIM(RTRIM(CAST(sfcWo.${bracketIdent(sfcNo)} AS NVARCHAR(100)))), N'')`;
+      logger.log(`OSP DelvIn: 작업지시번호 ${sfcTable}.WorkOrderNo ← WorkOrderSeq (${keyExprSfc})`);
+    }
+  }
+
   const woInstrCore = buildWorkInstructionNoSql(hCols, iCols);
-  const ospInstrExprSql = ospInstrLeadCoalesce
-    ? `COALESCE(${ospInstrLeadCoalesce}${woInstrCore})`
-    : woInstrCore;
+  const ospLeadExpr = ospInstrLeadCoalesce.replace(/,\s*$/, '').trim();
+  const instrParts: string[] = [];
+  if (sfcWoNoExprFragment) {
+    instrParts.push(sfcWoNoExprFragment);
+  }
+  if (ospInstrLeadCoalesce) {
+    instrParts.push(ospLeadExpr);
+  }
+  instrParts.push(woInstrCore);
+  const ospInstrExprSql = instrParts.length === 1 ? instrParts[0] : `COALESCE(${instrParts.join(', ')})`;
 
   const ospProcExprSql = buildFirstLineStringExpr(
     iCols,
@@ -1080,6 +1188,8 @@ async function resolveOspDelvInSqlPlan(
     itemCatMExprSql,
     itemCatSExprSql,
     ospWorkOrdJoinSql,
+    delvTypeSmApplySql,
+    sfcWorkOrdJoinSql,
   };
 }
 
@@ -1161,12 +1271,14 @@ function buildSelectSql(plan: OspDelvInSqlPlan, whereTail: string): string {
       FROM dbo.${bracketIdent(plan.headerTable)} h
       INNER JOIN dbo.${iTbl} i
         ON h.CompanySeq = i.CompanySeq AND h.${bracketIdent(plan.hSeq)} = i.${bracketIdent(plan.iSeq)}
+      ${plan.sfcWorkOrdJoinSql}
       ${plan.ospWorkOrdJoinSql}
       LEFT JOIN dbo.[_TDACust] c
         ON h.CompanySeq = c.CompanySeq AND h.CustSeq = c.CustSeq
       ${plan.deptJoinSql}
       ${plan.inEmpJoinSql}
       ${plan.lastWriterJoinSql}
+      ${plan.delvTypeSmApplySql}
       ${plan.inKindApplySql}
       LEFT JOIN dbo.[_TDAItem] it
         ON h.CompanySeq = it.CompanySeq AND i.${bracketIdent(plan.itemSeqCol)} = it.ItemSeq
@@ -1284,7 +1396,8 @@ export class ErpOspDelvInItemsService {
         'ERP_OSP_DELV_IN_KIND_UMINOR_MAJOR·ERP_OSP_DELV_IN_KIND_UMINOR_SERL은 둘 다 설정해야 소분류 조인이 좁혀집니다.',
       );
     }
-    this.sqlPlan = await resolveOspDelvInSqlPlan(pool, this.logger, kindMinorFilter);
+    const smDelvMajor = this.parseOptionalIntEnv('ERP_OSP_DELV_IN_SMDELVTYPE_UMINOR_MAJOR') ?? 6209;
+    this.sqlPlan = await resolveOspDelvInSqlPlan(pool, this.logger, kindMinorFilter, smDelvMajor);
     return this.sqlPlan;
   }
 

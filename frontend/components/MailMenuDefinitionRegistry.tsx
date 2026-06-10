@@ -87,7 +87,7 @@ type MailMenuDefinitionRegistryProps = {
   title?: string;
 };
 
-export function MailMenuDefinitionRegistry({ title = '메뉴관리' }: MailMenuDefinitionRegistryProps = {}) {
+export function MailMenuDefinitionRegistry({ title = '메일 메뉴관리' }: MailMenuDefinitionRegistryProps = {}) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<DefRow[]>([]);

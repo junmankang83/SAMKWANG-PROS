@@ -10,6 +10,7 @@ import {
   Input,
 } from '@samkwang/ui-kit';
 import { EIS_TABLE_SCROLL_WRAP, EIS_TD, EIS_TD_LEFT, EIS_TD_NUM, EIS_TH } from '@/lib/eis-report-table-classes';
+import { defaultMailSendingMenuInquiryDateRange, defaultMonthStartToTodayRange } from '@/lib/erp/inquiry-default-date-range';
 import { useCallback, useMemo, useState } from 'react';
 
 export type LgInoutMoveItemRow = {
@@ -69,23 +70,11 @@ export type LgInoutMoveItemInquiryProps = {
   embedded?: boolean;
 };
 
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-/** 시작일: 이번 달 1일, 종료일: 오늘(로컬 날짜) */
-function formatDefaultDateRange(): { from: string; to: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const firstOfMonth = new Date(y, m, 1);
-  const from = `${firstOfMonth.getFullYear()}-${pad2(firstOfMonth.getMonth() + 1)}-${pad2(firstOfMonth.getDate())}`;
-  const to = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
-  return { from, to };
-}
-
 export function LgInoutMoveItemInquiry({ embedded = false }: LgInoutMoveItemInquiryProps) {
-  const defaults = useMemo(() => formatDefaultDateRange(), []);
+  const defaults = useMemo(
+    () => (embedded ? defaultMailSendingMenuInquiryDateRange() : defaultMonthStartToTodayRange()),
+    [embedded],
+  );
 
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);

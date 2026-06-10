@@ -13,12 +13,9 @@ import {
   Input,
 } from '@samkwang/ui-kit';
 import { Icon } from '@iconify/react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
 export function LoginForm() {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -48,14 +45,15 @@ export function LoginForm() {
   }
 
   return (
-    <>
-    <Card className="shadow-card">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl tracking-tight">SAMKWANG-PROS</CardTitle>
-        <CardDescription>생산관리시스템 로그인</CardDescription>
+    <Card className="w-full border-0 bg-white/[0.97] shadow-2xl shadow-black/25 ring-1 ring-white/60 backdrop-blur-md dark:bg-slate-950/90 dark:ring-white/10">
+      <CardHeader className="space-y-1 border-b border-slate-200/80 pb-4 dark:border-slate-700/80">
+        <CardTitle className="text-center text-lg font-semibold text-slate-900 dark:text-slate-100">로그인</CardTitle>
+        <CardDescription className="text-center text-sm text-slate-500 dark:text-slate-400">
+          아이디와 비밀번호를 입력한 뒤 아래 버튼으로 접속합니다.
+        </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-6">
           <Input
             id="username"
             name="username"
@@ -79,24 +77,21 @@ export function LoginForm() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          <div className="border-t border-app-border pt-4">
-            <Button
-              type="submit"
-              variant="primary"
-              fullWidth
-              loading={pending}
-              disabled={pending}
-            >
-              <span className="inline-flex items-center justify-center gap-2">
-                <Icon icon="mdi:login" className="h-5 w-5 shrink-0" aria-hidden />
-                로그인
-              </span>
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            variant="primary"
+            fullWidth
+            className="mt-2 h-11 text-base font-medium shadow-md shadow-indigo-500/20 transition hover:opacity-[0.98]"
+            loading={pending}
+            disabled={pending}
+          >
+            <span className="inline-flex items-center justify-center gap-2">
+              <Icon icon="mdi:login" className="h-5 w-5 shrink-0" aria-hidden />
+              로그인
+            </span>
+          </Button>
         </CardContent>
       </form>
     </Card>
-
-    </>
   );
 }

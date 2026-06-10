@@ -8,6 +8,10 @@ function norm(s: string): string {
 
 export function isLgInoutMoveItemsMailMenu(menu: MailMenuLike): boolean {
   const label = norm(menu.label ?? '');
+  /** 메뉴 코드만 LG로 잘못 등록된 경우(예: 작업실적조회) 이동품목 UI가 뜨는 것 방지 */
+  if (label.includes('작업실적')) {
+    return false;
+  }
   const code = (menu.code ?? '').trim().toLowerCase();
   if (label.includes('이동품목') && label.includes('조회')) {
     return true;

@@ -3,8 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import * as mssql from 'mssql';
 
 /**
- * 일자별판매실적분석 — `dbo._TSLInvoiceItem`(ii) 기준 + `dbo._TSLSalesItem`(si) + `dbo._TSLBillItem`(bi)
- * 업체일자 구간·마스터 조인은 스키마 감지. 조인 키는 테이블 쌍 공통 컬럼 후보로 자동 매칭.
+ * 일자별판매실적분석 — `dbo._TSLInvoiceItem`(ii)·`dbo._TSLSalesItem`(si)·`dbo._TSLBillItem`(bi) **세 축**을
+ * `UNION ALL`로 합칩니다. 동일 키로 거래명세 품목이 있으면 ii 행만 남기고(si·bi 전용 분기에서는 `NOT EXISTS ii`로 제외) 중복을 줄입니다.
+ * **수출**: `_TSLInvoice` 헤더의 `SMExpKind`(및 동일 규칙 코드 컬럼) = **`8009004`** 인 전표만 포함합니다. 헤더 조인이 가능하면 라인·UM 텍스트로는 수출을 판별하지 않습니다(폴백은 헤더에 `SMExpKind` 없을 때만).
  */
 export type TslSalesDailyAnalysisRow = {
   rowNo: number;
@@ -82,10 +83,18 @@ type SqlRow = {
   InstructSerl: string | null;
   ShipNo: string | null;
   ShipSerl: string | null;
+  /** UNION 정렬용 — mapRow에서 미사용 */
+  SortCompany?: number | null;
 };
 
 const DEFAULT_LIMIT = 8000;
 const MAX_RANGE_DAYS = 400;
+
+/** 수출품: `_TSLInvoiceItem` / `_TSLInvoice` 의 `SMExpKind`(또는 `SMExpKindSeq` 등) 가 이 값과 같을 때만 포함 */
+const EXPORT_SM_EXP_KIND = '8009004';
+
+/** `resolvePlan` 캐시 무효화(필터 SQL·스키마 감지 변경 시 이 값만 올리면 됨) */
+const EXPORT_ANALYSIS_PLAN_VER = 7;
 
 function bracketIdent(name: string): string {
   return `[${name.replace(/\]/g, ']]')}]`;
@@ -213,6 +222,64 @@ function buildJoinOn(
   return null;
 }
 
+/** `SMExpKind` / `SMExpKindSeq` 등 — 둘 다 있으면 COALESCE 후 trim */
+function buildSmExpKindNormExpr(tableAlias: string, cols: Set<string>): string | null {
+  const sm = pickCol(cols, ['SMExpKind', 'SMEXPKIND']);
+  const smSeq = pickCol(cols, ['SMExpKindSeq', 'SMExportKind', 'ExportExpKind', 'ExpKind']);
+  if (sm && smSeq && sm.toUpperCase() !== smSeq.toUpperCase()) {
+    return `NULLIF(LTRIM(RTRIM(CAST(COALESCE(${tableAlias}.${bracketIdent(sm)}, ${tableAlias}.${bracketIdent(smSeq)}) AS NVARCHAR(50)))), N'')`;
+  }
+  const one = pickCol(cols, [
+    'SMExpKind',
+    'SMExpKindSeq',
+    'SMExportKind',
+    'ExportExpKind',
+    'ExpKind',
+    'SMEXPKIND',
+  ]);
+  if (!one) return null;
+  return `NULLIF(LTRIM(RTRIM(CAST(${tableAlias}.${bracketIdent(one)} AS NVARCHAR(50)))), N'')`;
+}
+
+/** `@exportSmExpKind` 일치 — `inv` 별칭 전제 */
+function buildSmExpKindMatchSql(normExpr: string): string {
+  return `((${normExpr} = @exportSmExpKind) OR (TRY_CONVERT(BIGINT, ${normExpr}) = TRY_CONVERT(BIGINT, @exportSmExpKind)))`;
+}
+
+/**
+ * si/bi 행이 `_TSLInvoice` 헤더(수출)와 연결되는지 — 직접 `INNER JOIN inv ON …` 키가 없을 때 `EXISTS` 폴백.
+ * `invInvSeq`는 헤더 쪽 전표 키 컬럼명, 품목 테이블에서는 동명 우선·없으면 후보로 매칭.
+ */
+function buildItemExistsExportInvSql(
+  itemAlias: 'si' | 'bi',
+  itemCols: Set<string>,
+  invTblBr: string,
+  invCompanyCol: string,
+  invInvSeq: string,
+  companyCol: string,
+  invSmMatch: string,
+): string | null {
+  const itemSeqCol = pickCol(itemCols, [
+    invInvSeq,
+    'InvoiceSeq',
+    'INVOICESEQ',
+    'TSLInvoiceSeq',
+    'SalesInvoiceSeq',
+    'InvSeq',
+    'InvcSeq',
+    'SOSeq',
+    'SOSerl',
+  ]);
+  if (!itemSeqCol) return null;
+  return `EXISTS (SELECT 1 FROM dbo.${invTblBr} inv WHERE inv.${bracketIdent(invCompanyCol)} = ${itemAlias}.${bracketIdent(companyCol)} AND inv.${bracketIdent(invInvSeq)} = ${itemAlias}.${bracketIdent(itemSeqCol)} AND (${invSmMatch}))`;
+}
+
+/** ERP에서 `매출-수출`·`수출` 등 텍스트로 수출 구분 — `= N'수출'` 만으로는 0건이 될 수 있음 */
+function buildUmExportSalesKindSql(tableAlias: string, umCol: string): string {
+  const t = `LTRIM(RTRIM(CAST(${tableAlias}.${bracketIdent(umCol)} AS NVARCHAR(200))))`;
+  return `(${t} IN (N'수출', N'매출-수출') OR ${t} LIKE N'%매출%수출%' OR (${t} LIKE N'%수출%' AND ${t} NOT LIKE N'%반품%'))`;
+}
+
 function coalesce3Expr(
   ii: string,
   si: string,
@@ -263,6 +330,27 @@ type AnalysisPlan = {
   itemAccountExpr: string;
   salesGroupExpr: string;
   unitJoinSql: string;
+  /** `_TSLInvoice` 조인 — 라인에 `SMExpKind` 없고 헤더만 있을 때 또는 헤더·라인 OR 필터용 */
+  invoiceJoinForExportSql: string;
+  /** `AND (...)` — 수출(`EXPORT_SM_EXP_KIND`)만 남김. 스키마에 `SMExpKind` 없으면 `(1=0)` */
+  smExpKindFilterSql: string;
+  /** `COALESCE(ii.CompanySeq, si.CompanySeq, bi.CompanySeq)` — 마스터 조인·정렬용 */
+  companyTriExpr: string;
+  /** si·bi 분기 수출 조건 `AND (...)` */
+  siBranchExportSql: string;
+  biBranchExportSql: string;
+  /** si·bi 전용 행에서 이미 ii 분기에 잡힌 동일 키 행 제외 */
+  notExistsIiForSiSql: string;
+  notExistsIiForBiSql: string;
+  /** `FROM si` 분기용: `LEFT JOIN dbo._TSLSales sal ON ...` (없으면 빈 문자열) */
+  salesHdrJoinForSiSql: string;
+  /** `FROM bi` 분기용: `LEFT JOIN dbo._TSLBill bil ON ...` */
+  billHdrJoinForBiSql: string;
+  /** si 분기: `_TSLInvoice` 헤더 `INNER JOIN`(헤더 `SMExpKind` 기준일 때만, 키 매칭 시) */
+  siJoinInvoiceHdrSql: string;
+  /** bi 분기: 위와 동일 */
+  biJoinInvoiceHdrSql: string;
+  exportAnalysisPlanVer: number;
 };
 
 @Injectable()
@@ -331,6 +419,9 @@ export class ErpTslSalesDailyAnalysisService {
   }
 
   private async resolvePlan(pool: mssql.ConnectionPool): Promise<AnalysisPlan> {
+    if (this.plan && this.plan.exportAnalysisPlanVer !== EXPORT_ANALYSIS_PLAN_VER) {
+      this.plan = null;
+    }
     if (this.plan) return this.plan;
 
     let iiTable = '_TSLInvoiceItem';
@@ -360,6 +451,8 @@ export class ErpTslSalesDailyAnalysisService {
         throw new ServiceUnavailableException(`${iiTable}에 CompanySeq가 없습니다.`);
       })();
 
+    const companyTriExpr = `COALESCE(ii.${bracketIdent(companyCol)}, si.${bracketIdent(companyCol)}, bi.${bracketIdent(companyCol)})`;
+
     const siJoinStrategies: string[][] = [
       ['InvoiceSeq', 'InvoiceSerl'],
       ['SalesSeq', 'SalesSerl'],
@@ -383,6 +476,39 @@ export class ErpTslSalesDailyAnalysisService {
         ['CompanySeq', 'InvoiceSeq'],
       ]) ?? null;
 
+    let invHeaderTable: string | null = null;
+    if (await tableExists(pool, '_TSLInvoice')) invHeaderTable = '_TSLInvoice';
+    else if (await tableExists(pool, 'TSLInvoice')) invHeaderTable = 'TSLInvoice';
+
+    let invCols: Set<string> | null = null;
+    if (invHeaderTable) invCols = await listColumns(pool, invHeaderTable);
+
+    const iiInvSeq = pickCol(ii, [
+      'InvoiceSeq',
+      'INVOICESEQ',
+      'TSLInvoiceSeq',
+      'InvSeq',
+      'InvcSeq',
+      'SalesInvoiceSeq',
+    ]);
+    const invInvSeq = invCols
+      ? pickCol(invCols, [
+          'InvoiceSeq',
+          'INVOICESEQ',
+          'TSLInvoiceSeq',
+          'InvSeq',
+          'InvcSeq',
+          'SalesInvoiceSeq',
+        ])
+      : null;
+    const invCompanyCol = invCols ? pickCol(invCols, ['CompanySeq', 'COMPANYSEQ']) : null;
+    const canJoinInv = Boolean(invHeaderTable && iiInvSeq && invInvSeq && invCompanyCol);
+    const invTblBr = invHeaderTable ? bracketIdent(invHeaderTable) : '';
+
+    const dateColInv = invCols
+      ? pickCol(invCols, ['InvoiceDate', 'BillDate', 'SalesDate', 'SlipDate', 'TaxDate', 'WriteDate'])
+      : null;
+
     const dateColIi = pickCol(ii, [
       'InvoiceDate',
       'BillDate',
@@ -390,18 +516,26 @@ export class ErpTslSalesDailyAnalysisService {
       'SlipDate',
       'RegDate',
       'OutDate',
+      'WorkDate',
+      'AcctDate',
+      'DocDate',
+      'ChgDate',
     ]);
     const dateColSi = pickCol(si, ['SalesDate', 'InvoiceDate', 'SlipDate', 'BillDate', 'RegDate']);
     const dateColBi = pickCol(bi, ['BillDate', 'InvoiceDate', 'SalesDate', 'SlipDate']);
-    const dIi = dateColIi ? `LTRIM(RTRIM(CAST(ii.${bracketIdent(dateColIi)} AS NVARCHAR(20))))` : `CAST(NULL AS NVARCHAR(20))`;
-    const dSi = dateColSi ? `LTRIM(RTRIM(CAST(si.${bracketIdent(dateColSi)} AS NVARCHAR(20))))` : `CAST(NULL AS NVARCHAR(20))`;
-    const dBi = dateColBi ? `LTRIM(RTRIM(CAST(bi.${bracketIdent(dateColBi)} AS NVARCHAR(20))))` : `CAST(NULL AS NVARCHAR(20))`;
+    const dIi = dateColIi ? `LTRIM(RTRIM(CAST(ii.${bracketIdent(dateColIi)} AS NVARCHAR(30))))` : `CAST(NULL AS NVARCHAR(30))`;
+    const dSi = dateColSi ? `LTRIM(RTRIM(CAST(si.${bracketIdent(dateColSi)} AS NVARCHAR(30))))` : `CAST(NULL AS NVARCHAR(30))`;
+    const dBi = dateColBi ? `LTRIM(RTRIM(CAST(bi.${bracketIdent(dateColBi)} AS NVARCHAR(30))))` : `CAST(NULL AS NVARCHAR(30))`;
+    const dateHdrSubq =
+      canJoinInv && invHeaderTable && dateColInv && invCompanyCol && invInvSeq && iiInvSeq
+        ? `(SELECT TOP (1) LTRIM(RTRIM(CAST(h.${bracketIdent(dateColInv)} AS NVARCHAR(30)))) FROM dbo.${invTblBr} h WHERE h.${bracketIdent(invCompanyCol)} = ii.${bracketIdent(companyCol)} AND h.${bracketIdent(invInvSeq)} = ii.${bracketIdent(iiInvSeq)})`
+        : `CAST(NULL AS NVARCHAR(30))`;
     const dateYmdExpr = `CASE
-      WHEN TRY_CONVERT(datetime, COALESCE(${dIi}, ${dSi}, ${dBi}), 112) IS NOT NULL
-        THEN CONVERT(CHAR(8), TRY_CONVERT(datetime, COALESCE(${dIi}, ${dSi}, ${dBi}), 112), 112)
-      WHEN TRY_CONVERT(datetime, COALESCE(${dIi}, ${dSi}, ${dBi})) IS NOT NULL
-        THEN CONVERT(CHAR(8), TRY_CONVERT(datetime, COALESCE(${dIi}, ${dSi}, ${dBi})), 112)
-      ELSE RIGHT(N'00000000' + LTRIM(RTRIM(COALESCE(${dIi}, ${dSi}, ${dBi}))), 8)
+      WHEN TRY_CONVERT(datetime, COALESCE(${dIi}, ${dateHdrSubq}, ${dSi}, ${dBi}), 112) IS NOT NULL
+        THEN CONVERT(CHAR(8), TRY_CONVERT(datetime, COALESCE(${dIi}, ${dateHdrSubq}, ${dSi}, ${dBi}), 112), 112)
+      WHEN TRY_CONVERT(datetime, COALESCE(${dIi}, ${dateHdrSubq}, ${dSi}, ${dBi})) IS NOT NULL
+        THEN CONVERT(CHAR(8), TRY_CONVERT(datetime, COALESCE(${dIi}, ${dateHdrSubq}, ${dSi}, ${dBi})), 112)
+      ELSE RIGHT(N'00000000' + LTRIM(RTRIM(COALESCE(${dIi}, ${dateHdrSubq}, ${dSi}, ${dBi}))), 8)
     END`;
 
     const invNoIi = pickCol(ii, ['InvoiceNo', 'BillNo', 'SlipNo', 'DocNo', 'OutNo']);
@@ -537,9 +671,189 @@ export class ErpTslSalesDailyAnalysisService {
     const salesGroupExpr = `LTRIM(RTRIM(CAST(${coalesce3Expr('ii', 'si', 'bi', sgIi, sgSi, sgBi, 'NVARCHAR(120)')} AS NVARCHAR(120))))`;
 
     const unitIi = pickCol(ii, ['UnitSeq', 'UNITSEQ']);
-    const unitJoinSql = unitIi
-      ? `LEFT JOIN dbo.[_TDAUnit] u ON ii.CompanySeq = u.CompanySeq AND u.UnitSeq = COALESCE(NULLIF(ii.${bracketIdent(unitIi)}, 0), NULLIF(it.UnitSeq, 0))`
-      : `LEFT JOIN dbo.[_TDAUnit] u ON ii.CompanySeq = u.CompanySeq AND u.UnitSeq = NULLIF(it.UnitSeq, 0)`;
+    const unitSi = pickCol(si, ['UnitSeq', 'UNITSEQ']);
+    const unitBi = pickCol(bi, ['UnitSeq', 'UNITSEQ']);
+    const unitCoalesceParts: string[] = [];
+    if (unitIi) unitCoalesceParts.push(`NULLIF(ii.${bracketIdent(unitIi)}, 0)`);
+    if (unitSi) unitCoalesceParts.push(`NULLIF(si.${bracketIdent(unitSi)}, 0)`);
+    if (unitBi) unitCoalesceParts.push(`NULLIF(bi.${bracketIdent(unitBi)}, 0)`);
+    unitCoalesceParts.push('NULLIF(it.UnitSeq, 0)');
+    const unitJoinSql = `LEFT JOIN dbo.[_TDAUnit] u ON ${companyTriExpr} = u.CompanySeq AND u.UnitSeq = COALESCE(${unitCoalesceParts.join(', ')})`;
+
+    const iiSmNorm = buildSmExpKindNormExpr('ii', ii);
+    const invSmNorm =
+      invCols != null && invHeaderTable != null ? buildSmExpKindNormExpr('inv', invCols) : null;
+
+    const iiSmMatch = iiSmNorm != null ? buildSmExpKindMatchSql(iiSmNorm) : null;
+    const invSmMatch = invSmNorm != null ? buildSmExpKindMatchSql(invSmNorm) : null;
+
+    let invoiceJoinForExportSql = '';
+    let smExpKindFilterSql = 'AND (1 = 0)';
+    /** `_TSLInvoice` 헤더 `SMExpKind` = 8009004 만으로 수출 판별 */
+    let exportByTslInvoiceHdrSm = false;
+
+    if (invSmNorm != null && canJoinInv) {
+      exportByTslInvoiceHdrSm = true;
+      invoiceJoinForExportSql = `INNER JOIN dbo.${invTblBr} inv ON ii.${bracketIdent(companyCol)} = inv.${bracketIdent(invCompanyCol!)} AND ii.${bracketIdent(iiInvSeq!)} = inv.${bracketIdent(invInvSeq!)}`;
+      smExpKindFilterSql = `AND (${invSmMatch})`;
+    } else if (iiSmNorm != null) {
+      smExpKindFilterSql = `AND (${iiSmMatch})`;
+    } else if (iiSmNorm == null && invSmNorm == null) {
+      const umCol = pickCol(ii, ['UMSalesKind', 'SMSalesKind']);
+      if (umCol) {
+        smExpKindFilterSql = `AND (${buildUmExportSalesKindSql('ii', umCol)})`;
+        this.logger.warn(
+          'TSL sales daily analysis: `_TSLInvoice.SMExpKind` 없음 — UMSalesKind/SMSalesKind 텍스트(수출·매출-수출 등)로 폴백합니다.',
+        );
+      } else {
+        this.logger.warn(
+          'TSL sales daily analysis: `_TSLInvoice`에 SMExpKind 없고 품목에도 없음 — 수출 필터가 비어 결과가 없을 수 있습니다.',
+        );
+      }
+    } else if (invSmNorm != null && !canJoinInv) {
+      this.logger.warn(
+        'TSL sales daily analysis: `_TSLInvoice.SMExpKind`는 있으나 거래명세 품목↔헤더 조인 키가 없어 헤더 기준 수출 필터를 쓸 수 없습니다.',
+      );
+    }
+
+    const siJoinInvOn =
+      invCols != null && invHeaderTable
+        ? buildJoinOn('si', 'inv', si, invCols, [
+            ['CompanySeq', 'InvoiceSeq', 'InvoiceSerl'],
+            ['CompanySeq', 'InvoiceSeq'],
+            ['CompanySeq', 'TSLInvoiceSeq'],
+            ['CompanySeq', 'SalesInvoiceSeq'],
+            ['CompanySeq', 'InvSeq'],
+            ['CompanySeq', 'InvcSeq'],
+          ])
+        : null;
+    const biJoinInvOn =
+      invCols != null && invHeaderTable
+        ? buildJoinOn('bi', 'inv', bi, invCols, [
+            ['CompanySeq', 'InvoiceSeq', 'InvoiceSerl'],
+            ['CompanySeq', 'InvoiceSeq'],
+            ['CompanySeq', 'TSLInvoiceSeq'],
+            ['CompanySeq', 'SalesInvoiceSeq'],
+            ['CompanySeq', 'InvSeq'],
+            ['CompanySeq', 'InvcSeq'],
+          ])
+        : null;
+
+    const siJoinInvoiceHdrSql =
+      exportByTslInvoiceHdrSm && siJoinInvOn
+        ? `INNER JOIN dbo.${invTblBr} inv ON ${siJoinInvOn}`
+        : '';
+    const biJoinInvoiceHdrSql =
+      exportByTslInvoiceHdrSm && biJoinInvOn
+        ? `INNER JOIN dbo.${invTblBr} inv ON ${biJoinInvOn}`
+        : '';
+
+    let salesHdrTable: string | null = null;
+    if (await tableExists(pool, '_TSLSales')) salesHdrTable = '_TSLSales';
+    else if (await tableExists(pool, 'TSLSales')) salesHdrTable = 'TSLSales';
+    const salCols = salesHdrTable ? await listColumns(pool, salesHdrTable) : null;
+    const salJoinOn =
+      salCols != null
+        ? buildJoinOn('si', 'sal', si, salCols, [
+            ['CompanySeq', 'SalesSeq'],
+            ['CompanySeq', 'SOSeq'],
+            ['CompanySeq', 'PUSOSeq'],
+          ])
+        : null;
+    const salesHdrJoinForSiSql =
+      salesHdrTable && salJoinOn
+        ? `LEFT JOIN dbo.${bracketIdent(salesHdrTable)} sal ON ${salJoinOn}`
+        : '';
+
+    let billHdrTable: string | null = null;
+    if (await tableExists(pool, '_TSLBill')) billHdrTable = '_TSLBill';
+    else if (await tableExists(pool, 'TSLBill')) billHdrTable = 'TSLBill';
+    const bilCols = billHdrTable ? await listColumns(pool, billHdrTable) : null;
+    const bilJoinOn =
+      bilCols != null
+        ? buildJoinOn('bi', 'bil', bi, bilCols, [
+            ['CompanySeq', 'BillSeq'],
+            ['CompanySeq', 'InvoiceSeq', 'InvoiceSerl'],
+            ['CompanySeq', 'InvoiceSeq'],
+          ])
+        : null;
+    const billHdrJoinForBiSql =
+      billHdrTable && bilJoinOn
+        ? `LEFT JOIN dbo.${bracketIdent(billHdrTable)} bil ON ${bilJoinOn}`
+        : '';
+
+    const siSmNorm = buildSmExpKindNormExpr('si', si);
+    const biSmNorm = buildSmExpKindNormExpr('bi', bi);
+    const siSmMatch = siSmNorm != null ? buildSmExpKindMatchSql(siSmNorm) : null;
+    const biSmMatch = biSmNorm != null ? buildSmExpKindMatchSql(biSmNorm) : null;
+    const salSmNorm = salCols != null && salesHdrTable ? buildSmExpKindNormExpr('sal', salCols) : null;
+    const bilSmNorm = bilCols != null && billHdrTable ? buildSmExpKindNormExpr('bil', bilCols) : null;
+    const salSmMatch = salSmNorm != null ? buildSmExpKindMatchSql(salSmNorm) : null;
+    const bilSmMatch = bilSmNorm != null ? buildSmExpKindMatchSql(bilSmNorm) : null;
+
+    const umSiCol = pickCol(si, ['UMSalesKind', 'SMSalesKind']);
+    const umBiCol = pickCol(bi, ['UMSalesKind', 'SMSalesKind']);
+
+    const buildSiBiBranchExport = (
+      lineMatch: string | null,
+      hdrMatch: string | null,
+      hdrJoinSql: string,
+      umCol: string | null,
+      alias: 'si' | 'bi',
+    ): string => {
+      const umSql =
+        umCol != null ? buildUmExportSalesKindSql(alias, umCol) : null;
+      const hasHdr = Boolean(hdrJoinSql?.trim());
+      if (lineMatch && hdrMatch && hasHdr) return `AND (${lineMatch} OR ${hdrMatch})`;
+      if (lineMatch && !hdrMatch) return `AND (${lineMatch})`;
+      if (!lineMatch && hdrMatch && hasHdr) return `AND (${hdrMatch})`;
+      if (umSql) return `AND (${umSql})`;
+      return 'AND (1 = 0)';
+    };
+
+    let siBranchExportSql: string;
+    let biBranchExportSql: string;
+    if (exportByTslInvoiceHdrSm && invSmMatch != null) {
+      if (siJoinInvoiceHdrSql.trim().length > 0) {
+        siBranchExportSql = `AND (${invSmMatch})`;
+      } else {
+        const exSi =
+          invCols != null && invCompanyCol != null && invInvSeq != null
+            ? buildItemExistsExportInvSql('si', si, invTblBr, invCompanyCol, invInvSeq, companyCol, invSmMatch)
+            : null;
+        siBranchExportSql = exSi ? `AND (${exSi})` : 'AND (1 = 0)';
+      }
+      if (biJoinInvoiceHdrSql.trim().length > 0) {
+        biBranchExportSql = `AND (${invSmMatch})`;
+      } else {
+        const exBi =
+          invCols != null && invCompanyCol != null && invInvSeq != null
+            ? buildItemExistsExportInvSql('bi', bi, invTblBr, invCompanyCol, invInvSeq, companyCol, invSmMatch)
+            : null;
+        biBranchExportSql = exBi ? `AND (${exBi})` : 'AND (1 = 0)';
+      }
+    } else {
+      siBranchExportSql = buildSiBiBranchExport(siSmMatch, salSmMatch, salesHdrJoinForSiSql, umSiCol, 'si');
+      biBranchExportSql = buildSiBiBranchExport(biSmMatch, bilSmMatch, billHdrJoinForBiSql, umBiCol, 'bi');
+
+      if (siBranchExportSql === 'AND (1 = 0)' && smExpKindFilterSql.includes('ii.') && umSiCol) {
+        siBranchExportSql = `AND (${buildUmExportSalesKindSql('si', umSiCol)})`;
+      }
+      if (biBranchExportSql === 'AND (1 = 0)' && smExpKindFilterSql.includes('ii.') && umBiCol) {
+        biBranchExportSql = `AND (${buildUmExportSalesKindSql('bi', umBiCol)})`;
+      }
+    }
+
+    /** ii와 중복되는 si/bi 행도 포함(ERP 건수에 맞춤). 동일 키가 ii·si에 동시 존재하면 행이 늘어날 수 있음. */
+    const notExistsIiForSiSql = '';
+    const notExistsIiForBiSql = '';
+
+    const umFallbackUsed = Boolean(
+      !exportByTslInvoiceHdrSm && !iiSmMatch && !invSmMatch && pickCol(ii, ['UMSalesKind', 'SMSalesKind']),
+    );
+    this.logger.log(
+      `TSL sales daily analysis: ii=${iiTable} si=${siTable}(${siJoinOn ? 'join' : 'no-join'}) bi=${biTable}(${biJoinOn ? 'join' : 'no-join'}) exportHdr8009004=${exportByTslInvoiceHdrSm} itemSm=${Boolean(iiSmNorm)} hdrSm=${Boolean(invSmNorm)} invJoin=${Boolean(invoiceJoinForExportSql)} siInvHdr=${Boolean(siJoinInvoiceHdrSql)} biInvHdr=${Boolean(biJoinInvoiceHdrSql)} umFallback=${umFallbackUsed} salesHdr=${Boolean(salesHdrJoinForSiSql)} billHdr=${Boolean(billHdrJoinForBiSql)} siBr=${siBranchExportSql !== 'AND (1 = 0)'} biBr=${biBranchExportSql !== 'AND (1 = 0)'}`,
+    );
 
     this.plan = {
       iiTable,
@@ -576,11 +890,20 @@ export class ErpTslSalesDailyAnalysisService {
       itemAccountExpr,
       salesGroupExpr,
       unitJoinSql,
+      invoiceJoinForExportSql,
+      smExpKindFilterSql,
+      companyTriExpr,
+      siBranchExportSql,
+      biBranchExportSql,
+      notExistsIiForSiSql,
+      notExistsIiForBiSql,
+      salesHdrJoinForSiSql,
+      billHdrJoinForBiSql,
+      siJoinInvoiceHdrSql,
+      biJoinInvoiceHdrSql,
+      exportAnalysisPlanVer: EXPORT_ANALYSIS_PLAN_VER,
     };
 
-    this.logger.log(
-      `TSL sales daily analysis: ii=${iiTable} si=${siTable}(${siJoinOn ? 'join' : 'no-join'}) bi=${biTable}(${biJoinOn ? 'join' : 'no-join'})`,
-    );
     return this.plan;
   }
 
@@ -631,18 +954,25 @@ export class ErpTslSalesDailyAnalysisService {
     const biJoinSql = p.biJoinOn ? `LEFT JOIN dbo.${biTbl} bi ON ${p.biJoinOn}` : `LEFT JOIN dbo.${biTbl} bi ON 1 = 0`;
 
     const custJoin =
-      'LEFT JOIN dbo.[_TDACust] c ON ii.CompanySeq = c.CompanySeq AND c.CustSeq = ' + p.custSeqExpr;
+      'LEFT JOIN dbo.[_TDACust] c ON ' + p.companyTriExpr + ' = c.CompanySeq AND c.CustSeq = ' + p.custSeqExpr;
     const itemJoin =
-      'LEFT JOIN dbo.[_TDAItem] it ON ii.CompanySeq = it.CompanySeq AND it.ItemSeq = ' + p.itemSeqExpr;
+      'LEFT JOIN dbo.[_TDAItem] it ON ' + p.companyTriExpr + ' = it.CompanySeq AND it.ItemSeq = ' + p.itemSeqExpr;
     const deptJoin =
-      'LEFT JOIN dbo.[_TDADept] dp ON ii.CompanySeq = dp.CompanySeq AND dp.DeptSeq = ' + p.deptSeqExpr;
+      'LEFT JOIN dbo.[_TDADept] dp ON ' + p.companyTriExpr + ' = dp.CompanySeq AND dp.DeptSeq = ' + p.deptSeqExpr;
     const empJoin =
-      'LEFT JOIN dbo.[_TDAEmp] e ON ii.CompanySeq = e.CompanySeq AND e.EmpSeq = ' + p.empSeqExpr;
+      'LEFT JOIN dbo.[_TDAEmp] e ON ' + p.companyTriExpr + ' = e.CompanySeq AND e.EmpSeq = ' + p.empSeqExpr;
     const currJoin =
-      'LEFT JOIN dbo.[_TDACurr] cr ON ii.CompanySeq = cr.CompanySeq AND cr.CurrSeq = ' + p.currSeqExpr;
+      'LEFT JOIN dbo.[_TDACurr] cr ON ' + p.companyTriExpr + ' = cr.CompanySeq AND cr.CurrSeq = ' + p.currSeqExpr;
 
-    const sql = `
-      SELECT TOP (@fetchCount)
+    const masterTail = `
+      ${itemJoin}
+      ${p.unitJoinSql}
+      ${custJoin}
+      ${deptJoin}
+      ${empJoin}
+      ${currJoin}`;
+
+    const selectCore = `
         ${p.divisionExpr} AS DivisionKind,
         ${p.invoiceNoExpr} AS InvoiceCompanyNo,
         ${p.dateYmdExpr} AS InvoiceCompanyDateRaw,
@@ -683,24 +1013,71 @@ export class ErpTslSalesDailyAnalysisService {
         ${p.instNoExpr} AS InstructNo,
         ${p.instSerlExpr} AS InstructSerl,
         ${p.shipNoExpr} AS ShipNo,
-        ${p.shipSerlExpr} AS ShipSerl
-      FROM dbo.${iiTbl} ii
-      ${siJoinSql}
-      ${biJoinSql}
-      ${itemJoin}
-      ${p.unitJoinSql}
-      ${custJoin}
-      ${deptJoin}
-      ${empJoin}
-      ${currJoin}
-      WHERE ${p.dateYmdExpr} >= @fromYmd AND ${p.dateYmdExpr} <= @toYmd
-        ${companySeq != null ? `AND ii.${bracketIdent(p.companyCol)} = @companySeq` : ''}
-      ORDER BY ${p.dateYmdExpr} ASC, ii.${bracketIdent(p.companyCol)} ASC
+        ${p.shipSerlExpr} AS ShipSerl,
+        ${p.companyTriExpr} AS SortCompany`;
+
+    const joinSiToIi = p.siJoinOn
+      ? `LEFT JOIN dbo.${iiTbl} ii ON ${p.siJoinOn}`
+      : `LEFT JOIN dbo.${iiTbl} ii ON 1 = 0`;
+    const joinIiToBiFromSi = p.biJoinOn
+      ? `LEFT JOIN dbo.${biTbl} bi ON ${p.biJoinOn}`
+      : `LEFT JOIN dbo.${biTbl} bi ON 1 = 0`;
+    const joinBiToIi = p.biJoinOn
+      ? `LEFT JOIN dbo.${iiTbl} ii ON ${p.biJoinOn}`
+      : `LEFT JOIN dbo.${iiTbl} ii ON 1 = 0`;
+    const joinIiToSiFromBi = p.siJoinOn
+      ? `LEFT JOIN dbo.${siTbl} si ON ${p.siJoinOn}`
+      : `LEFT JOIN dbo.${siTbl} si ON 1 = 0`;
+
+    const companyTail = companySeq != null ? `AND (${p.companyTriExpr}) = @companySeq` : '';
+
+    const sql = `
+      SELECT TOP (@fetchCount) u.*
+      FROM (
+        SELECT
+          ${selectCore}
+        FROM dbo.${iiTbl} ii
+        ${p.invoiceJoinForExportSql}
+        ${siJoinSql}
+        ${biJoinSql}
+        ${masterTail}
+        WHERE ${p.dateYmdExpr} >= @fromYmd AND ${p.dateYmdExpr} <= @toYmd
+          ${p.smExpKindFilterSql?.trim() ? p.smExpKindFilterSql : 'AND (1=0)'}
+          ${companyTail}
+        UNION ALL
+        SELECT
+          ${selectCore}
+        FROM dbo.${siTbl} si
+        ${p.siJoinInvoiceHdrSql}
+        ${joinSiToIi}
+        ${joinIiToBiFromSi}
+        ${p.salesHdrJoinForSiSql}
+        ${masterTail}
+        WHERE ${p.dateYmdExpr} >= @fromYmd AND ${p.dateYmdExpr} <= @toYmd
+          ${p.siBranchExportSql}
+          ${p.notExistsIiForSiSql}
+          ${companyTail}
+        UNION ALL
+        SELECT
+          ${selectCore}
+        FROM dbo.${biTbl} bi
+        ${p.biJoinInvoiceHdrSql}
+        ${joinBiToIi}
+        ${joinIiToSiFromBi}
+        ${p.billHdrJoinForBiSql}
+        ${masterTail}
+        WHERE ${p.dateYmdExpr} >= @fromYmd AND ${p.dateYmdExpr} <= @toYmd
+          ${p.biBranchExportSql}
+          ${p.notExistsIiForBiSql}
+          ${companyTail}
+      ) u
+      ORDER BY u.InvoiceCompanyDateRaw ASC, u.SortCompany ASC
     `;
 
     const request = pool.request();
     request.input('fromYmd', mssql.Char(8), fromYmd);
     request.input('toYmd', mssql.Char(8), toYmd);
+    request.input('exportSmExpKind', mssql.NVarChar(50), EXPORT_SM_EXP_KIND);
     request.input('fetchCount', mssql.Int, fetchCount);
     if (companySeq != null) request.input('companySeq', mssql.Int, companySeq);
 

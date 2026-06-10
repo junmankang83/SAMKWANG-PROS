@@ -10,6 +10,7 @@ import { seoulHHmm, seoulWeekdaySun0, shouldFireRule, utcMinuteSlot, mailSubject
 import { buildMailOpenPixelUrl, resolveMailTrackingPublicApiBase } from './mail-tracking-url';
 import { generateOpenTrackingToken } from './mail-send-token';
 import { createMailMenuSendLogWithColumnFallback, createMailSendLogWithColumnFallback } from './mail-send-log-fallback';
+import { buildPlainTextSheetXlsx, subjectToXlsxFilename } from './mail-report-xlsx.util';
 
 @Injectable()
 export class MailSchedulerService {
@@ -183,6 +184,10 @@ export class MailSchedulerService {
         openPixelUrl,
         mailHtmlBannerTitle: menu.label.trim() || subject,
         mailHtmlBannerSendAt: sendAt,
+        excelAttachment:
+          report.excelDataBuffer && report.excelDataBuffer.length > 0
+            ? { filename: subjectToXlsxFilename(subject), content: report.excelDataBuffer }
+            : undefined,
         smtp: {
           host: cfg.host,
           port: cfg.port,
@@ -255,6 +260,7 @@ export class MailSchedulerService {
     subject = mailSubjectWithSeoulSendDate(subject, sendAt);
     let mailHtmlStructuredIntro: string | undefined;
     let mailHtmlTableFragment: string | undefined;
+    let excelDataBuffer: Buffer | undefined;
     if (rule.mailMenu) {
       const report = await this.menuReport.appendMenuDataReport(
         body,
@@ -264,6 +270,9 @@ export class MailSchedulerService {
       body = report.text;
       mailHtmlStructuredIntro = report.mailHtmlStructuredIntro;
       mailHtmlTableFragment = report.mailHtmlTableFragment;
+      excelDataBuffer = report.excelDataBuffer;
+    } else {
+      excelDataBuffer = await buildPlainTextSheetXlsx(bannerTitle, body);
     }
     const apiBase = resolveMailTrackingPublicApiBase();
     const openToken = apiBase ? generateOpenTrackingToken() : null;
@@ -280,6 +289,10 @@ export class MailSchedulerService {
         openPixelUrl,
         mailHtmlBannerTitle: bannerTitle,
         mailHtmlBannerSendAt: sendAt,
+        excelAttachment:
+          excelDataBuffer && excelDataBuffer.length > 0
+            ? { filename: subjectToXlsxFilename(subject), content: excelDataBuffer }
+            : undefined,
         smtp: {
           host: cfg.host,
           port: cfg.port,

@@ -10,6 +10,7 @@ import {
   Input,
 } from '@samkwang/ui-kit';
 import { EIS_TABLE_SCROLL_WRAP, EIS_TD, EIS_TD_LEFT, EIS_TD_NUM, EIS_TH } from '@/lib/eis-report-table-classes';
+import { defaultMailSendingMenuInquiryDateRange } from '@/lib/erp/inquiry-default-date-range';
 import { useCallback, useMemo, useState } from 'react';
 
 /** 백엔드 `OspDelvItemRow` — ERP「외주납품품목조회」그리드 열 */
@@ -99,13 +100,6 @@ async function readApiError(res: Response): Promise<string> {
   return `요청 실패 (${res.status})`;
 }
 
-function toYmd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function formatNumber(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) {
     return '';
@@ -125,11 +119,7 @@ export type OspDelvItemInquiryProps = {
 };
 
 export function OspDelvItemInquiry({ embedded = false }: OspDelvItemInquiryProps) {
-  const defaults = useMemo(() => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: toYmd(start), to: toYmd(today) };
-  }, []);
+  const defaults = useMemo(() => defaultMailSendingMenuInquiryDateRange(), []);
 
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);

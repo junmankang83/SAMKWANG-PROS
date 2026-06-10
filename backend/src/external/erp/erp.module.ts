@@ -18,6 +18,12 @@ import { ErpTslInvoiceItemsController } from './erp-tsl-invoice-items.controller
 import { ErpTslInvoiceItemsService } from './erp-tsl-invoice-items.service';
 import { ErpTslSalesDailyAnalysisController } from './erp-tsl-sales-daily-analysis.controller';
 import { ErpTslSalesDailyAnalysisService } from './erp-tsl-sales-daily-analysis.service';
+import { ErpPdsfcWorkReportController } from './erp-pdsfc-work-report.controller';
+import { ErpPdsfcWorkReportService } from './erp-pdsfc-work-report.service';
+import { ErpWhStockListController } from './erp-wh-stock-list.controller';
+import { ErpWhStockListService } from './erp-wh-stock-list.service';
+import { ErpWhStockSumController } from './erp-wh-stock-sum.controller';
+import { ErpWhStockSumService } from './erp-wh-stock-sum.service';
 import { ErpToolsService } from './erp-tools.service';
 import { ErpUsersService } from './erp-users.service';
 
@@ -33,6 +39,9 @@ import { ErpUsersService } from './erp-users.service';
     ErpOspDelvItemsController,
     ErpLgInoutMoveItemsController,
     ErpTslSalesDailyAnalysisController,
+    ErpPdsfcWorkReportController,
+    ErpWhStockSumController,
+    ErpWhStockListController,
   ],
   providers: [
     ErpToolsService,
@@ -46,6 +55,9 @@ import { ErpUsersService } from './erp-users.service';
     ErpOspDelvItemsService,
     ErpLgInoutMoveItemsService,
     ErpTslSalesDailyAnalysisService,
+    ErpPdsfcWorkReportService,
+    ErpWhStockSumService,
+    ErpWhStockListService,
   ],
   exports: [
     ErpToolsService,
@@ -59,6 +71,9 @@ import { ErpUsersService } from './erp-users.service';
     ErpOspDelvItemsService,
     ErpLgInoutMoveItemsService,
     ErpTslSalesDailyAnalysisService,
+    ErpPdsfcWorkReportService,
+    ErpWhStockSumService,
+    ErpWhStockListService,
   ],
 })
 export class ErpModule {}

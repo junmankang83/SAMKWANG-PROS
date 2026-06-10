@@ -57,7 +57,7 @@ export function SignupForm() {
     <>
       <Card className="shadow-card">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl tracking-tight">SAMKWANG-PROS</CardTitle>
+          <CardTitle className="text-2xl tracking-tight">ERP INFO MAILER</CardTitle>
           <CardDescription>회원가입</CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit}>
